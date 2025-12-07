@@ -9,56 +9,57 @@ export interface LifecycleTools {
   emulatorManager: EmulatorManager;
 }
 
+// Tool schemas (minimal descriptions for context efficiency)
 export const lifecycleToolSchemas = {
   app_status: {
     name: 'app_status',
-    description: 'Get the current status of the mobile app development environment (Expo server, device, app installation)',
+    description: 'Get app status',
     inputSchema: z.object({}),
   },
   launch_expo: {
     name: 'launch_expo',
-    description: 'Launch the Expo development server for the mobile app',
+    description: 'Launch Expo server',
     inputSchema: z.object({
-      port: z.number().optional().describe('Port number for Expo server (default: 8081)'),
-      wait_for_ready: z.boolean().optional().describe('Wait for server to be ready (default: true)'),
-      timeout_secs: z.number().optional().describe('Timeout in seconds (default: 60)'),
+      port: z.number().optional().describe('Port'),
+      wait_for_ready: z.boolean().optional().describe('Wait for ready'),
+      timeout_secs: z.number().optional().describe('Timeout'),
     }),
   },
   stop_expo: {
     name: 'stop_expo',
-    description: 'Stop the running Expo development server',
+    description: 'Stop Expo server',
     inputSchema: z.object({}),
   },
   start_simulator: {
     name: 'start_simulator',
-    description: 'Start an iOS Simulator',
+    description: 'Start iOS Simulator',
     inputSchema: z.object({
-      device_name: z.string().optional().describe('Specific simulator name (e.g., "iPhone 15 Pro"). If not specified, uses first available iPhone.'),
-      wait_for_boot: z.boolean().optional().describe('Wait for simulator to fully boot (default: true)'),
-      timeout_secs: z.number().optional().describe('Timeout in seconds (default: 120)'),
+      device_name: z.string().optional().describe('Device name'),
+      wait_for_boot: z.boolean().optional().describe('Wait for boot'),
+      timeout_secs: z.number().optional().describe('Timeout'),
     }),
   },
   start_emulator: {
     name: 'start_emulator',
-    description: 'Start an Android Emulator',
+    description: 'Start Android Emulator',
     inputSchema: z.object({
-      device_name: z.string().optional().describe('Specific emulator AVD name (e.g., "Pixel_7_API_34"). If not specified, uses first available.'),
-      wait_for_boot: z.boolean().optional().describe('Wait for emulator to fully boot (default: true)'),
-      timeout_secs: z.number().optional().describe('Timeout in seconds (default: 120)'),
+      device_name: z.string().optional().describe('AVD name'),
+      wait_for_boot: z.boolean().optional().describe('Wait for boot'),
+      timeout_secs: z.number().optional().describe('Timeout'),
     }),
   },
   stop_device: {
     name: 'stop_device',
-    description: 'Stop running simulator or emulator',
+    description: 'Stop device',
     inputSchema: z.object({
-      platform: z.enum(['ios', 'android']).optional().describe('Platform to stop. If not specified, stops all running devices.'),
+      platform: z.enum(['ios', 'android']).optional().describe('Platform'),
     }),
   },
   install_app: {
     name: 'install_app',
-    description: 'Install the Expo development client app on the device (requires Expo server to be running)',
+    description: 'Install app on device',
     inputSchema: z.object({
-      platform: z.enum(['ios', 'android']).describe('Platform to install on'),
+      platform: z.enum(['ios', 'android']).describe('Platform'),
     }),
   },
 };
