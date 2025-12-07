@@ -1,0 +1,47 @@
+{
+  "name": "expo-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for Expo app automation with iOS Simulator, Android Emulator, and Maestro integration",
+  "type": "module",
+  "bin": {
+    "expo-mcp": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "expo",
+    "react-native",
+    "ios-simulator",
+    "android-emulator",
+    "maestro",
+    "automation",
+    "testing"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DaveDev42/expo-mcp.git"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.1",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
