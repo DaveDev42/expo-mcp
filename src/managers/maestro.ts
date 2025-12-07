@@ -92,6 +92,10 @@ export class MaestroManager {
     this.cleanup();
   }
 
+  isReady(): boolean {
+    return this.isInitialized;
+  }
+
   getTools(): MaestroTool[] {
     return Array.from(this.tools.values());
   }

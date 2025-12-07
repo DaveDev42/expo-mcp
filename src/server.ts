@@ -115,6 +115,12 @@ export class McpServer {
       if (name.startsWith('maestro_')) {
         const maestroToolName = name.substring('maestro_'.length);
         try {
+          // Lazy initialize Maestro on first use
+          if (!this.maestroManager.isReady()) {
+            console.error('[expo-mcp] Initializing Maestro MCP on first use...');
+            await this.maestroManager.initialize();
+            console.error('[expo-mcp] Maestro MCP initialized successfully');
+          }
           return await this.maestroProxy.callTool(maestroToolName, args || {});
         } catch (error: any) {
           return {
@@ -147,16 +153,7 @@ export class McpServer {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
     console.error('[expo-mcp] Server started on stdio');
-
-    // Initialize Maestro MCP in background (don't block server startup)
-    this.maestroManager.initialize()
-      .then(() => {
-        console.error('[expo-mcp] Maestro MCP initialized successfully');
-      })
-      .catch((error: any) => {
-        console.error('[expo-mcp] Failed to initialize Maestro MCP:', error.message);
-        console.error('[expo-mcp] Maestro tools will not be available');
-      });
+    // Maestro initializes lazily on first tool call
   }
 
   async stop() {
