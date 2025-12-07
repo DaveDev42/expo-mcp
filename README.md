@@ -1,14 +1,11 @@
 # expo-mcp
 
-MCP server for Expo/React Native app automation with iOS Simulator, Android Emulator, and Maestro integration.
+MCP server for Expo/React Native app automation with Maestro integration.
 
 ## Features
 
-- **Expo Dev Server Management**: Start/stop Expo development server
-- **iOS Simulator Control**: Boot, shutdown, and manage iOS simulators
-- **Android Emulator Control**: Start, stop, and manage Android emulators
-- **Expo Go Installation**: Automatically download and install Expo Go on simulators/emulators
-- **App Loading**: Open your Expo app in Expo Go with a single command
+- **Expo Dev Server Management**: Start/stop Expo development server with automatic device launch
+- **Automatic Device Management**: Uses Expo CLI's built-in simulator/emulator management
 - **Maestro Integration**: Full Maestro MCP tools for UI automation
 
 ## Installation
@@ -39,25 +36,34 @@ Add to your `.mcp.json`:
 
 ## Quick Start
 
-1. **Start a simulator/emulator**:
+1. **Check status**:
    ```
-   start_simulator  # for iOS
-   start_emulator   # for Android
-   ```
-
-2. **Install Expo Go**:
-   ```
-   install_app({ platform: "ios" })
+   app_status
    ```
 
-3. **Start Expo dev server**:
+2. **Start Expo with iOS Simulator**:
    ```
-   launch_expo
+   launch_expo({ platform: "ios" })
+   ```
+   This automatically:
+   - Boots iOS Simulator (if not running)
+   - Installs Expo Go (if needed)
+   - Opens your app in Expo Go
+
+3. **Or start with Android Emulator**:
+   ```
+   launch_expo({ platform: "android" })
    ```
 
-4. **Open your app in Expo Go**:
+4. **Use Maestro for UI testing**:
    ```
-   open_app
+   maestro_take_screenshot({ path: "/tmp/screenshot.png" })
+   maestro_tap_on({ text: "Login" })
+   ```
+
+5. **Stop when done**:
+   ```
+   stop_expo
    ```
 
 ## Tools
@@ -66,15 +72,9 @@ Add to your `.mcp.json`:
 
 | Tool | Description |
 |------|-------------|
-| `app_status` | Get status of Expo server, device, and Expo Go installation |
-| `launch_expo` | Start Expo dev server |
+| `app_status` | Get status of Expo server |
+| `launch_expo` | Start Expo dev server (with optional --ios or --android) |
 | `stop_expo` | Stop Expo dev server |
-| `start_simulator` | Boot iOS Simulator |
-| `start_emulator` | Start Android Emulator |
-| `stop_device` | Shutdown simulator/emulator |
-| `install_app` | Install Expo Go on device (auto-downloads if needed) |
-| `open_app` | Open Expo app URL in Expo Go |
-| `launch_expo_go` | Launch Expo Go app |
 
 ### Maestro Tools (Proxied)
 
@@ -95,43 +95,16 @@ All Maestro MCP tools are available with `maestro_` prefix:
 | `EXPO_APP_DIR` | Path to Expo app directory | Current working directory |
 | `MAESTRO_CLI_PATH` | Path to Maestro CLI | `~/.maestro/bin/maestro` |
 
-## Workflow Example
+## How It Works
 
-Here's a typical workflow for testing an Expo app:
+This MCP server leverages Expo CLI's built-in device management. When you call `launch_expo` with a `platform` parameter:
 
-```typescript
-// 1. Check current status
-app_status()
-
-// 2. Start iOS simulator
-start_simulator({ device_name: "iPhone 15 Pro" })
-
-// 3. Install Expo Go (will download if not cached)
-install_app({ platform: "ios" })
-
-// 4. Start Expo development server
-launch_expo({ port: 8081 })
-
-// 5. Open the app in Expo Go
-open_app()
-
-// 6. Use Maestro for UI testing
-maestro_take_screenshot({ path: "/tmp/screenshot.png" })
-maestro_tap_on({ text: "Login" })
-
-// 7. Clean up when done
-stop_expo()
-stop_device({ platform: "ios" })
+```
+npx expo start --ios   # Boots simulator, installs Expo Go, opens app
+npx expo start --android   # Boots emulator, installs Expo Go, opens app
 ```
 
-## Expo Go Versions
-
-The MCP server automatically downloads the appropriate Expo Go version:
-
-- **iOS Simulator**: Downloads `.app` bundle from Expo's CDN
-- **Android Emulator**: Downloads `.apk` from Expo's CDN
-
-Downloaded files are cached in the system temp directory for faster subsequent installs.
+This is much simpler and more reliable than managing devices manually.
 
 ## Requirements
 

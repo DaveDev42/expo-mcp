@@ -3,6 +3,7 @@ import { setTimeout } from 'timers/promises';
 
 export interface ExpoLaunchOptions {
   port?: number;
+  platform?: 'ios' | 'android';
   wait_for_ready?: boolean;
   timeout_secs?: number;
 }
@@ -10,25 +11,37 @@ export interface ExpoLaunchOptions {
 export class ExpoManager {
   private process: ChildProcess | null = null;
   private port: number = 8081;
+  private platform: 'ios' | 'android' | null = null;
   private appDir: string;
 
   constructor(appDir?: string) {
     this.appDir = appDir ?? process.env.EXPO_APP_DIR ?? process.cwd();
   }
 
-  async launch(options: ExpoLaunchOptions = {}): Promise<{ url: string; port: number }> {
+  async launch(options: ExpoLaunchOptions = {}): Promise<{ url: string; port: number; platform: string | null }> {
     const port = options.port ?? 8081;
+    const platform = options.platform ?? null;
     const waitForReady = options.wait_for_ready ?? true;
-    const timeoutSecs = options.timeout_secs ?? 60;
+    const timeoutSecs = options.timeout_secs ?? 120;
 
     if (this.process) {
       throw new Error('Expo server is already running. Stop it first.');
     }
 
     this.port = port;
+    this.platform = platform;
+
+    // Build command arguments
+    // npx expo start --port <port> [--ios | --android]
+    const args = ['expo', 'start', '--port', port.toString()];
+    if (platform === 'ios') {
+      args.push('--ios');
+    } else if (platform === 'android') {
+      args.push('--android');
+    }
 
     // Launch Expo dev server
-    this.process = spawn('pnpm', ['dev', '--port', port.toString()], {
+    this.process = spawn('npx', args, {
       cwd: this.appDir,
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: false,
@@ -53,7 +66,7 @@ export class ExpoManager {
     }
 
     const url = `http://localhost:${port}`;
-    return { url, port };
+    return { url, port, platform };
   }
 
   async stop(): Promise<void> {
@@ -66,6 +79,7 @@ export class ExpoManager {
 
       proc.on('exit', () => {
         this.process = null;
+        this.platform = null;
         resolve();
       });
 
@@ -77,6 +91,7 @@ export class ExpoManager {
         if (this.process === proc) {
           proc.kill('SIGKILL');
           this.process = null;
+          this.platform = null;
           resolve();
         }
       });
@@ -89,6 +104,10 @@ export class ExpoManager {
 
   getPort(): number {
     return this.port;
+  }
+
+  getPlatform(): 'ios' | 'android' | null {
+    return this.platform;
   }
 
   private async waitForServer(port: number, timeoutSecs: number): Promise<void> {

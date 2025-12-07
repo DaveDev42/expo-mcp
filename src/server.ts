@@ -7,8 +7,6 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { ExpoManager } from './managers/expo.js';
-import { SimulatorManager } from './managers/simulator.js';
-import { EmulatorManager } from './managers/emulator.js';
 import { MaestroManager } from './managers/maestro.js';
 
 import { lifecycleToolSchemas, createLifecycleHandlers } from './tools/lifecycle.js';
@@ -17,8 +15,6 @@ import { createMaestroToolsProxy } from './tools/maestro.js';
 export class McpServer {
   private server: Server;
   private expoManager: ExpoManager;
-  private simulatorManager: SimulatorManager;
-  private emulatorManager: EmulatorManager;
   private maestroManager: MaestroManager;
   private lifecycleHandlers: ReturnType<typeof createLifecycleHandlers>;
   private maestroProxy: ReturnType<typeof createMaestroToolsProxy>;
@@ -27,7 +23,7 @@ export class McpServer {
     this.server = new Server(
       {
         name: 'expo-mcp',
-        version: '0.1.0',
+        version: '0.2.0',
       },
       {
         capabilities: {
@@ -38,15 +34,11 @@ export class McpServer {
 
     // Initialize managers
     this.expoManager = new ExpoManager(appDir);
-    this.simulatorManager = new SimulatorManager();
-    this.emulatorManager = new EmulatorManager();
     this.maestroManager = new MaestroManager();
 
     // Create handlers
     this.lifecycleHandlers = createLifecycleHandlers({
       expoManager: this.expoManager,
-      simulatorManager: this.simulatorManager,
-      emulatorManager: this.emulatorManager,
     });
 
     this.maestroProxy = createMaestroToolsProxy({
@@ -168,8 +160,6 @@ export class McpServer {
 
   async stop() {
     await this.expoManager.stop();
-    await this.simulatorManager.shutdown();
-    await this.emulatorManager.stop();
     await this.maestroManager.shutdown();
   }
 }

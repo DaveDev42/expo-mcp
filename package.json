@@ -1,7 +1,7 @@
 {
   "name": "expo-mcp",
-  "version": "0.1.0",
-  "description": "MCP server for Expo app automation with iOS Simulator, Android Emulator, and Maestro integration",
+  "version": "0.2.0",
+  "description": "MCP server for Expo app automation with Maestro integration",
   "type": "module",
   "bin": {
     "expo-mcp": "./dist/index.js"
