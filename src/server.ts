@@ -144,18 +144,19 @@ export class McpServer {
   }
 
   async start() {
-    // Initialize Maestro MCP
-    try {
-      await this.maestroManager.initialize();
-      console.error('[expo-mcp] Maestro MCP initialized successfully');
-    } catch (error: any) {
-      console.error('[expo-mcp] Failed to initialize Maestro MCP:', error.message);
-      console.error('[expo-mcp] Maestro tools will not be available');
-    }
-
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
     console.error('[expo-mcp] Server started on stdio');
+
+    // Initialize Maestro MCP in background (don't block server startup)
+    this.maestroManager.initialize()
+      .then(() => {
+        console.error('[expo-mcp] Maestro MCP initialized successfully');
+      })
+      .catch((error: any) => {
+        console.error('[expo-mcp] Failed to initialize Maestro MCP:', error.message);
+        console.error('[expo-mcp] Maestro tools will not be available');
+      });
   }
 
   async stop() {
