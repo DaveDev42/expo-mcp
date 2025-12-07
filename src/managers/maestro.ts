@@ -50,8 +50,20 @@ export class MaestroManager {
       this.cleanup();
     });
 
-    // Initialize connection
-    await this.sendRequest({ jsonrpc: '2.0', method: 'initialize', params: {}, id: this.requestId++ });
+    // Initialize connection (MCP protocol requires these fields)
+    await this.sendRequest({
+      jsonrpc: '2.0',
+      method: 'initialize',
+      params: {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        clientInfo: {
+          name: 'expo-mcp',
+          version: '0.2.0',
+        },
+      },
+      id: this.requestId++,
+    });
 
     // List tools
     const toolsResponse = await this.sendRequest({ jsonrpc: '2.0', method: 'tools/list', params: {}, id: this.requestId++ });
