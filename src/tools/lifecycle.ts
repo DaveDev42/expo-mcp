@@ -57,9 +57,24 @@ export const lifecycleToolSchemas = {
   },
   install_app: {
     name: 'install_app',
-    description: 'Install app on device',
+    description: 'Install Expo Go on device',
     inputSchema: z.object({
       platform: z.enum(['ios', 'android']).describe('Platform'),
+    }),
+  },
+  open_app: {
+    name: 'open_app',
+    description: 'Open Expo app URL in Expo Go',
+    inputSchema: z.object({
+      platform: z.enum(['ios', 'android']).optional().describe('Platform (auto-detect if not specified)'),
+      url: z.string().optional().describe('Expo URL (uses running server if not specified)'),
+    }),
+  },
+  launch_expo_go: {
+    name: 'launch_expo_go',
+    description: 'Launch Expo Go app',
+    inputSchema: z.object({
+      platform: z.enum(['ios', 'android']).optional().describe('Platform (auto-detect if not specified)'),
     }),
   },
 };
@@ -68,21 +83,30 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
   return {
     async app_status() {
       const expoStatus = managers.expoManager.getStatus();
+      const expoPort = managers.expoManager.getPort();
 
-      let device: { platform: 'ios' | 'android' | null; name: string | null; udid: string | null } = {
+      let device: {
+        platform: 'ios' | 'android' | null;
+        name: string | null;
+        udid: string | null;
+        expo_go_installed: boolean;
+      } = {
         platform: null,
         name: null,
         udid: null,
+        expo_go_installed: false,
       };
 
       // Check for booted iOS simulator
       try {
         const bootedSimulator = await managers.simulatorManager.getBootedDevice();
         if (bootedSimulator) {
+          const expoGoInfo = await managers.simulatorManager.isExpoGoInstalled(bootedSimulator.udid);
           device = {
             platform: 'ios',
             name: bootedSimulator.name,
             udid: bootedSimulator.udid,
+            expo_go_installed: expoGoInfo.installed,
           };
         }
       } catch {
@@ -91,14 +115,29 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
 
       // If no iOS device, check for Android emulator
       if (!device.platform) {
-        // Android emulator detection is less reliable, skip for now
-        // Could enhance this by checking adb devices
+        try {
+          const runningEmulator = await managers.emulatorManager.getRunningEmulator();
+          if (runningEmulator) {
+            const expoGoInfo = await managers.emulatorManager.isExpoGoInstalled();
+            device = {
+              platform: 'android',
+              name: runningEmulator,
+              udid: null,
+              expo_go_installed: expoGoInfo.installed,
+            };
+          }
+        } catch {
+          // No emulator available
+        }
       }
 
       const result = {
-        expo_server: expoStatus,
+        expo_server: {
+          status: expoStatus,
+          port: expoPort,
+          url: expoStatus === 'running' ? `exp://localhost:${expoPort}` : null,
+        },
         device,
-        app_installed: false, // TODO: Implement app installation check
       };
 
       return {
@@ -117,7 +156,15 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
         content: [
           {
             type: 'text' as const,
-            text: JSON.stringify(result, null, 2),
+            text: JSON.stringify(
+              {
+                ...result,
+                exp_url: `exp://localhost:${result.port}`,
+                message: 'Expo server started. Use install_app to install Expo Go, then open_app to load the app.',
+              },
+              null,
+              2
+            ),
           },
         ],
       };
@@ -140,11 +187,25 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
         wait_for_boot: args.wait_for_boot,
         timeout_secs: args.timeout_secs,
       });
+
+      // Check if Expo Go is installed
+      const expoGoInfo = await managers.simulatorManager.isExpoGoInstalled(result.udid);
+
       return {
         content: [
           {
             type: 'text' as const,
-            text: JSON.stringify(result, null, 2),
+            text: JSON.stringify(
+              {
+                ...result,
+                expo_go_installed: expoGoInfo.installed,
+                next_step: expoGoInfo.installed
+                  ? 'Expo Go is installed. Use launch_expo to start the server, then open_app to load the app.'
+                  : 'Expo Go not installed. Use install_app to install it.',
+              },
+              null,
+              2
+            ),
           },
         ],
       };
@@ -155,11 +216,25 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
         wait_for_boot: args.wait_for_boot,
         timeout_secs: args.timeout_secs,
       });
+
+      // Check if Expo Go is installed
+      const expoGoInfo = await managers.emulatorManager.isExpoGoInstalled();
+
       return {
         content: [
           {
             type: 'text' as const,
-            text: JSON.stringify({ name: deviceName }, null, 2),
+            text: JSON.stringify(
+              {
+                name: deviceName,
+                expo_go_installed: expoGoInfo.installed,
+                next_step: expoGoInfo.installed
+                  ? 'Expo Go is installed. Use launch_expo to start the server, then open_app to load the app.'
+                  : 'Expo Go not installed. Use install_app to install it.',
+              },
+              null,
+              2
+            ),
           },
         ],
       };
@@ -193,9 +268,129 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
     },
 
     async install_app(args: z.infer<typeof lifecycleToolSchemas.install_app.inputSchema>) {
-      // TODO: Implement app installation
-      // This would involve building the app and installing it via xcrun simctl (iOS) or adb (Android)
-      throw new Error('install_app not yet implemented. Use Expo Go or development client manually for now.');
+      let result: { installed: boolean; message: string };
+
+      if (args.platform === 'ios') {
+        result = await managers.simulatorManager.installExpoGo();
+      } else {
+        result = await managers.emulatorManager.installExpoGo();
+      }
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(
+              {
+                ...result,
+                platform: args.platform,
+                next_step: 'Expo Go installed. Use launch_expo to start the server, then open_app to load the app.',
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    },
+
+    async open_app(args: z.infer<typeof lifecycleToolSchemas.open_app.inputSchema>) {
+      // Determine the URL to open
+      let url = args.url;
+      if (!url) {
+        // Use the running Expo server
+        const expoStatus = managers.expoManager.getStatus();
+        if (expoStatus !== 'running') {
+          throw new Error('No Expo server running. Start one with launch_expo first, or provide a URL.');
+        }
+        const port = managers.expoManager.getPort();
+        url = `exp://localhost:${port}`;
+      }
+
+      // Determine the platform
+      let platform = args.platform;
+      if (!platform) {
+        // Auto-detect
+        const bootedSimulator = await managers.simulatorManager.getBootedDevice();
+        if (bootedSimulator) {
+          platform = 'ios';
+        } else {
+          const runningEmulator = await managers.emulatorManager.getRunningEmulator();
+          if (runningEmulator) {
+            platform = 'android';
+          } else {
+            throw new Error('No device running. Start a simulator or emulator first.');
+          }
+        }
+      }
+
+      let result: { success: boolean; message: string };
+
+      if (platform === 'ios') {
+        result = await managers.simulatorManager.openInExpoGo(url);
+      } else {
+        result = await managers.emulatorManager.openInExpoGo(url);
+      }
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(
+              {
+                ...result,
+                platform,
+                url,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    },
+
+    async launch_expo_go(args: z.infer<typeof lifecycleToolSchemas.launch_expo_go.inputSchema>) {
+      // Determine the platform
+      let platform = args.platform;
+      if (!platform) {
+        // Auto-detect
+        const bootedSimulator = await managers.simulatorManager.getBootedDevice();
+        if (bootedSimulator) {
+          platform = 'ios';
+        } else {
+          const runningEmulator = await managers.emulatorManager.getRunningEmulator();
+          if (runningEmulator) {
+            platform = 'android';
+          } else {
+            throw new Error('No device running. Start a simulator or emulator first.');
+          }
+        }
+      }
+
+      let result: { success: boolean; message: string };
+
+      if (platform === 'ios') {
+        result = await managers.simulatorManager.launchExpoGo();
+      } else {
+        result = await managers.emulatorManager.launchExpoGo();
+      }
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(
+              {
+                ...result,
+                platform,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
     },
   };
 }
