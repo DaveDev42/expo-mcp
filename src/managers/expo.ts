@@ -40,11 +40,12 @@ export class ExpoManager {
       args.push('--android');
     }
 
-    // Launch Expo dev server
+    // Launch Expo dev server with detached process group for proper cleanup
     this.process = spawn('npx', args, {
       cwd: this.appDir,
       stdio: ['ignore', 'pipe', 'pipe'],
-      detached: false,
+      detached: true,
+      shell: process.platform === 'win32', // Only use shell on Windows
     });
 
     // Capture output for debugging
@@ -70,29 +71,52 @@ export class ExpoManager {
   }
 
   async stop(): Promise<void> {
-    if (!this.process) {
+    if (!this.process || !this.process.pid) {
       return;
     }
 
     return new Promise((resolve) => {
       const proc = this.process!;
+      const pid = proc.pid!;
 
-      proc.on('exit', () => {
+      const cleanup = () => {
         this.process = null;
         this.platform = null;
         resolve();
-      });
+      };
 
-      // Send SIGTERM
-      proc.kill('SIGTERM');
+      proc.on('exit', cleanup);
+
+      // Kill process group on Unix, taskkill on Windows
+      if (process.platform !== 'win32') {
+        try {
+          // Negative PID kills the entire process group
+          process.kill(-pid, 'SIGTERM');
+        } catch (e) {
+          proc.kill('SIGTERM');
+        }
+      } else {
+        spawn('taskkill', ['/PID', pid.toString(), '/T', '/F'], {
+          stdio: 'ignore',
+          shell: true,
+        });
+        proc.kill('SIGTERM');
+      }
 
       // Force kill after 5 seconds if still running
       setTimeout(5000).then(() => {
         if (this.process === proc) {
-          proc.kill('SIGKILL');
-          this.process = null;
-          this.platform = null;
-          resolve();
+          console.error('[Expo] Force killing process group');
+          if (process.platform !== 'win32') {
+            try {
+              process.kill(-pid, 'SIGKILL');
+            } catch (e) {
+              proc.kill('SIGKILL');
+            }
+          } else {
+            proc.kill('SIGKILL');
+          }
+          cleanup();
         }
       });
     });
