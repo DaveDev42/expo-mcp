@@ -119,7 +119,10 @@ export class MaestroManager {
       id: this.requestId++,
     });
 
-    return response.content || { content: [{ type: 'text', text: JSON.stringify(response) }] };
+    if (response.content) {
+      return response;
+    }
+    return { content: [{ type: 'text', text: JSON.stringify(response) }] };
   }
 
   private handleStdout(data: string): void {
