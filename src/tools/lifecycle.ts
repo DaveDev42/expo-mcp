@@ -5,23 +5,45 @@ export interface LifecycleTools {
   expoManager: ExpoManager;
 }
 
-// Tool schemas (minimal descriptions for context efficiency)
+// Tool schemas with clear descriptions
 export const lifecycleToolSchemas = {
   app_status: {
     name: 'app_status',
-    description: 'Get app status',
+    description: 'Get Expo server status',
     inputSchema: z.object({}),
   },
   launch_expo: {
     name: 'launch_expo',
-    description: 'Launch Expo server',
+    description: 'Launch Expo dev server',
     inputSchema: z.object({
-      port: z.number().optional().describe('Port'),
-      platform: z.enum(['ios', 'android']).optional().describe('Platform (launches simulator/emulator automatically)'),
-      connection: z.enum(['lan', 'tunnel', 'localhost']).optional().describe('Connection mode: lan (default), tunnel (ngrok for remote devices), localhost (simulator only)'),
-      hostname: z.string().optional().describe('Custom hostname override (e.g., "192.168.1.100")'),
-      wait_for_ready: z.boolean().optional().describe('Wait for ready'),
-      timeout_secs: z.number().optional().describe('Timeout'),
+      // Target device
+      target: z
+        .enum(['ios-simulator', 'android-emulator', 'web-browser'])
+        .optional()
+        .describe('Target device to auto-launch'),
+
+      // Connection mode
+      host: z
+        .enum(['lan', 'tunnel', 'localhost'])
+        .optional()
+        .describe('Connection mode: lan (physical devices), tunnel (remote), localhost (simulator)'),
+      offline: z.boolean().optional().describe('Offline mode'),
+
+      // Server settings
+      port: z.number().optional().describe('Server port (default: 8081)'),
+      clear: z.boolean().optional().describe('Clear bundler cache'),
+
+      // Build options
+      dev: z.boolean().optional().describe('Development mode (default: true)'),
+      minify: z.boolean().optional().describe('Minify JavaScript'),
+      max_workers: z.number().optional().describe('Max Metro workers'),
+
+      // Other
+      scheme: z.string().optional().describe('Custom URI scheme'),
+
+      // expo-mcp specific
+      wait_for_ready: z.boolean().optional().describe('Wait for server ready'),
+      timeout_secs: z.number().optional().describe('Timeout in seconds'),
     }),
   },
   stop_expo: {
@@ -34,16 +56,19 @@ export const lifecycleToolSchemas = {
 export function createLifecycleHandlers(managers: LifecycleTools) {
   return {
     async app_status() {
-      const expoStatus = managers.expoManager.getStatus();
-      const expoPort = managers.expoManager.getPort();
-      const expoPlatform = managers.expoManager.getPlatform();
+      const status = managers.expoManager.getStatus();
+      const port = managers.expoManager.getPort();
+      const target = managers.expoManager.getTarget();
+      const host = managers.expoManager.getHost();
 
       const result = {
         expo_server: {
-          status: expoStatus,
-          port: expoPort,
-          platform: expoPlatform,
-          url: expoStatus === 'running' ? `exp://localhost:${expoPort}` : null,
+          status,
+          port,
+          target,
+          host,
+          url: status === 'running' ? `http://localhost:${port}` : null,
+          exp_url: status === 'running' ? `exp://localhost:${port}` : null,
         },
       };
 
@@ -59,9 +84,24 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
 
     async launch_expo(args: z.infer<typeof lifecycleToolSchemas.launch_expo.inputSchema>) {
       const result = await managers.expoManager.launch(args);
-      const connectionInfo = result.connection.startsWith('custom:')
-        ? `custom hostname (${result.connection.substring(7)})`
-        : result.connection;
+
+      // Generate appropriate message based on target and host
+      let message: string;
+      if (result.target) {
+        const targetName =
+          result.target === 'ios-simulator'
+            ? 'iOS Simulator'
+            : result.target === 'android-emulator'
+              ? 'Android Emulator'
+              : 'Web Browser';
+        message = `Expo server started. ${targetName} launching...`;
+      } else if (result.host === 'tunnel') {
+        message = 'Expo server started with tunnel. Scan QR code in terminal or use exp_url in Expo Go.';
+      } else if (result.host === 'lan') {
+        message = 'Expo server started on LAN. Scan QR code in terminal or use exp_url in Expo Go.';
+      } else {
+        message = 'Expo server started.';
+      }
 
       return {
         content: [
@@ -70,10 +110,7 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
             text: JSON.stringify(
               {
                 ...result,
-                exp_url: `exp://localhost:${result.port}`,
-                message: result.platform
-                  ? `Expo server started with ${result.platform} device (${connectionInfo} mode). App will open automatically.`
-                  : `Expo server started (${connectionInfo} mode). Use --platform to auto-launch a device.`,
+                message,
               },
               null,
               2

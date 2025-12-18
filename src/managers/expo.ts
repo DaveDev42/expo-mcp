@@ -1,32 +1,78 @@
 import { spawn, ChildProcess } from 'child_process';
 import { setTimeout } from 'timers/promises';
+import { networkInterfaces } from 'os';
+
+export type ExpoTarget = 'ios-simulator' | 'android-emulator' | 'web-browser';
+export type ExpoHost = 'lan' | 'tunnel' | 'localhost';
 
 export interface ExpoLaunchOptions {
+  /** Target: auto-launch simulator/emulator */
+  target?: ExpoTarget;
+
+  /** Connection mode (for physical devices or override) */
+  host?: ExpoHost;
+  /** Offline mode - skip network requests */
+  offline?: boolean;
+
+  /** Server port (default: 8081) */
   port?: number;
-  platform?: 'ios' | 'android';
-  /** Connection mode: 'lan' for LAN IP, 'tunnel' for ngrok tunnel, 'localhost' for local */
-  connection?: 'lan' | 'tunnel' | 'localhost';
-  /** Custom hostname override (takes precedence over connection mode) */
-  hostname?: string;
+  /** Clear bundler cache */
+  clear?: boolean;
+
+  /** Development mode (default: true), set false for --no-dev */
+  dev?: boolean;
+  /** Minify JavaScript bundle */
+  minify?: boolean;
+  /** Max Metro workers */
+  max_workers?: number;
+
+  /** Custom URI scheme */
+  scheme?: string;
+
+  /** expo-mcp specific: wait for server ready */
   wait_for_ready?: boolean;
+  /** expo-mcp specific: timeout in seconds */
   timeout_secs?: number;
+}
+
+export interface ExpoLaunchResult {
+  url: string;
+  exp_url: string;
+  port: number;
+  target: ExpoTarget | null;
+  host: ExpoHost;
+}
+
+/**
+ * Get the local network IP address for LAN connections
+ */
+function getLanIP(): string {
+  const nets = networkInterfaces();
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name] ?? []) {
+      // Skip internal/loopback addresses
+      if (net.family === 'IPv4' && !net.internal) {
+        return net.address;
+      }
+    }
+  }
+  return 'localhost';
 }
 
 export class ExpoManager {
   private process: ChildProcess | null = null;
   private port: number = 8081;
-  private platform: 'ios' | 'android' | null = null;
+  private target: ExpoTarget | null = null;
+  private host: ExpoHost = 'lan';
   private appDir: string;
 
   constructor(appDir?: string) {
     this.appDir = appDir ?? process.env.EXPO_APP_DIR ?? process.cwd();
   }
 
-  async launch(options: ExpoLaunchOptions = {}): Promise<{ url: string; port: number; platform: string | null; connection: string }> {
+  async launch(options: ExpoLaunchOptions = {}): Promise<ExpoLaunchResult> {
     const port = options.port ?? 8081;
-    const platform = options.platform ?? null;
-    const connection = options.connection ?? null;
-    const hostname = options.hostname ?? null;
+    const target = options.target ?? null;
     const waitForReady = options.wait_for_ready ?? true;
     const timeoutSecs = options.timeout_secs ?? 120;
 
@@ -35,45 +81,65 @@ export class ExpoManager {
     }
 
     this.port = port;
-    this.platform = platform;
+    this.target = target;
 
-    // Build command arguments
-    // npx expo start --port <port> [--ios | --android] [--tunnel | --lan | --localhost]
+    // Build command arguments: npx expo start [options]
     const args = ['expo', 'start', '--port', port.toString()];
-    if (platform === 'ios') {
+
+    // Target → CLI flags
+    if (target === 'ios-simulator') {
       args.push('--ios');
-    } else if (platform === 'android') {
+    } else if (target === 'android-emulator') {
       args.push('--android');
+    } else if (target === 'web-browser') {
+      args.push('--web');
     }
 
-    // Connection mode flag for Expo CLI
-    let effectiveConnection: string | null = connection;
-    if (connection === 'tunnel') {
+    // Determine effective host mode
+    let effectiveHost: ExpoHost;
+    if (options.host) {
+      // Explicit host specified
+      effectiveHost = options.host;
+    } else if (target === 'ios-simulator') {
+      // iOS simulator defaults to localhost
+      effectiveHost = 'localhost';
+    } else {
+      // Everything else defaults to lan
+      effectiveHost = 'lan';
+    }
+    this.host = effectiveHost;
+
+    // Host → CLI flags
+    if (effectiveHost === 'tunnel') {
       args.push('--tunnel');
-    } else if (connection === 'lan') {
+    } else if (effectiveHost === 'lan') {
       args.push('--lan');
-    } else if (connection === 'localhost') {
+    } else if (effectiveHost === 'localhost') {
       args.push('--localhost');
+    }
+
+    // Other options
+    if (options.offline) {
+      args.push('--offline');
+    }
+    if (options.clear) {
+      args.push('--clear');
+    }
+    if (options.dev === false) {
+      args.push('--no-dev');
+    }
+    if (options.minify) {
+      args.push('--minify');
+    }
+    if (options.max_workers !== undefined) {
+      args.push('--max-workers', options.max_workers.toString());
+    }
+    if (options.scheme) {
+      args.push('--scheme', options.scheme);
     }
 
     // Launch Expo dev server with detached process group for proper cleanup
     const env = { ...process.env };
-
-    // Custom hostname takes precedence
-    if (hostname) {
-      env.REACT_NATIVE_PACKAGER_HOSTNAME = hostname;
-      effectiveConnection = `custom:${hostname}`;
-    } else if (!connection) {
-      // Default behavior based on platform when no explicit connection mode
-      // iOS simulator: use localhost (same machine)
-      // Android: use default (auto-detect LAN IP for emulator)
-      if (platform === 'ios') {
-        env.REACT_NATIVE_PACKAGER_HOSTNAME = 'localhost';
-        effectiveConnection = 'localhost';
-      } else {
-        effectiveConnection = 'lan';
-      }
-    }
 
     this.process = spawn('npx', args, {
       cwd: this.appDir,
@@ -101,8 +167,12 @@ export class ExpoManager {
       await this.waitForServer(port, timeoutSecs);
     }
 
-    const url = `http://localhost:${port}`;
-    return { url, port, platform, connection: effectiveConnection ?? 'lan' };
+    // Generate URLs based on host mode
+    const hostname = effectiveHost === 'localhost' ? 'localhost' : getLanIP();
+    const url = `http://${hostname}:${port}`;
+    const exp_url = `exp://${hostname}:${port}`;
+
+    return { url, exp_url, port, target, host: effectiveHost };
   }
 
   async stop(): Promise<void> {
@@ -116,7 +186,8 @@ export class ExpoManager {
 
       const cleanup = () => {
         this.process = null;
-        this.platform = null;
+        this.target = null;
+        this.host = 'lan';
         resolve();
       };
 
@@ -165,8 +236,12 @@ export class ExpoManager {
     return this.port;
   }
 
-  getPlatform(): 'ios' | 'android' | null {
-    return this.platform;
+  getTarget(): ExpoTarget | null {
+    return this.target;
+  }
+
+  getHost(): ExpoHost {
+    return this.host;
   }
 
   private async waitForServer(port: number, timeoutSecs: number): Promise<void> {
