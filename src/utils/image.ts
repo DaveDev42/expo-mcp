@@ -1,9 +1,8 @@
 import sharp from 'sharp';
 
-// Claude Code recommended max dimensions
-// Mobile screenshots are typically portrait (tall), so allow more height
+// Claude Code max dimensions (2000px limit for many-image requests)
 const MAX_WIDTH = 1200;
-const MAX_HEIGHT = 2400;
+const MAX_HEIGHT = 2000;
 
 /**
  * Resize base64 image if it exceeds max dimensions
