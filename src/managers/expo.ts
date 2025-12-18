@@ -41,9 +41,14 @@ export class ExpoManager {
     }
 
     // Launch Expo dev server with detached process group for proper cleanup
+    // Use localhost for iOS simulator (avoids network IP issues)
     this.process = spawn('npx', args, {
       cwd: this.appDir,
       stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        REACT_NATIVE_PACKAGER_HOSTNAME: 'localhost',
+      },
       detached: true,
       shell: process.platform === 'win32', // Only use shell on Windows
     });
