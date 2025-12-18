@@ -4,6 +4,10 @@ import { setTimeout } from 'timers/promises';
 export interface ExpoLaunchOptions {
   port?: number;
   platform?: 'ios' | 'android';
+  /** Connection mode: 'lan' for LAN IP, 'tunnel' for ngrok tunnel, 'localhost' for local */
+  connection?: 'lan' | 'tunnel' | 'localhost';
+  /** Custom hostname override (takes precedence over connection mode) */
+  hostname?: string;
   wait_for_ready?: boolean;
   timeout_secs?: number;
 }
@@ -18,9 +22,11 @@ export class ExpoManager {
     this.appDir = appDir ?? process.env.EXPO_APP_DIR ?? process.cwd();
   }
 
-  async launch(options: ExpoLaunchOptions = {}): Promise<{ url: string; port: number; platform: string | null }> {
+  async launch(options: ExpoLaunchOptions = {}): Promise<{ url: string; port: number; platform: string | null; connection: string }> {
     const port = options.port ?? 8081;
     const platform = options.platform ?? null;
+    const connection = options.connection ?? null;
+    const hostname = options.hostname ?? null;
     const waitForReady = options.wait_for_ready ?? true;
     const timeoutSecs = options.timeout_secs ?? 120;
 
@@ -32,7 +38,7 @@ export class ExpoManager {
     this.platform = platform;
 
     // Build command arguments
-    // npx expo start --port <port> [--ios | --android]
+    // npx expo start --port <port> [--ios | --android] [--tunnel | --lan | --localhost]
     const args = ['expo', 'start', '--port', port.toString()];
     if (platform === 'ios') {
       args.push('--ios');
@@ -40,15 +46,39 @@ export class ExpoManager {
       args.push('--android');
     }
 
+    // Connection mode flag for Expo CLI
+    let effectiveConnection: string | null = connection;
+    if (connection === 'tunnel') {
+      args.push('--tunnel');
+    } else if (connection === 'lan') {
+      args.push('--lan');
+    } else if (connection === 'localhost') {
+      args.push('--localhost');
+    }
+
     // Launch Expo dev server with detached process group for proper cleanup
-    // Use localhost for iOS simulator (avoids network IP issues)
+    const env = { ...process.env };
+
+    // Custom hostname takes precedence
+    if (hostname) {
+      env.REACT_NATIVE_PACKAGER_HOSTNAME = hostname;
+      effectiveConnection = `custom:${hostname}`;
+    } else if (!connection) {
+      // Default behavior based on platform when no explicit connection mode
+      // iOS simulator: use localhost (same machine)
+      // Android: use default (auto-detect LAN IP for emulator)
+      if (platform === 'ios') {
+        env.REACT_NATIVE_PACKAGER_HOSTNAME = 'localhost';
+        effectiveConnection = 'localhost';
+      } else {
+        effectiveConnection = 'lan';
+      }
+    }
+
     this.process = spawn('npx', args, {
       cwd: this.appDir,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: {
-        ...process.env,
-        REACT_NATIVE_PACKAGER_HOSTNAME: 'localhost',
-      },
+      env,
       detached: true,
       shell: process.platform === 'win32', // Only use shell on Windows
     });
@@ -72,7 +102,7 @@ export class ExpoManager {
     }
 
     const url = `http://localhost:${port}`;
-    return { url, port, platform };
+    return { url, port, platform, connection: effectiveConnection ?? 'lan' };
   }
 
   async stop(): Promise<void> {

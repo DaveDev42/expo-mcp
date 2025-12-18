@@ -18,6 +18,8 @@ export const lifecycleToolSchemas = {
     inputSchema: z.object({
       port: z.number().optional().describe('Port'),
       platform: z.enum(['ios', 'android']).optional().describe('Platform (launches simulator/emulator automatically)'),
+      connection: z.enum(['lan', 'tunnel', 'localhost']).optional().describe('Connection mode: lan (default), tunnel (ngrok for remote devices), localhost (simulator only)'),
+      hostname: z.string().optional().describe('Custom hostname override (e.g., "192.168.1.100")'),
       wait_for_ready: z.boolean().optional().describe('Wait for ready'),
       timeout_secs: z.number().optional().describe('Timeout'),
     }),
@@ -57,6 +59,10 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
 
     async launch_expo(args: z.infer<typeof lifecycleToolSchemas.launch_expo.inputSchema>) {
       const result = await managers.expoManager.launch(args);
+      const connectionInfo = result.connection.startsWith('custom:')
+        ? `custom hostname (${result.connection.substring(7)})`
+        : result.connection;
+
       return {
         content: [
           {
@@ -66,8 +72,8 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
                 ...result,
                 exp_url: `exp://localhost:${result.port}`,
                 message: result.platform
-                  ? `Expo server started with ${result.platform} device. App will open automatically in Expo Go.`
-                  : 'Expo server started. Use --platform to auto-launch a device.',
+                  ? `Expo server started with ${result.platform} device (${connectionInfo} mode). App will open automatically.`
+                  : `Expo server started (${connectionInfo} mode). Use --platform to auto-launch a device.`,
               },
               null,
               2
