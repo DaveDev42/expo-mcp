@@ -39,6 +39,7 @@ export class McpServer {
     // Create handlers
     this.lifecycleHandlers = createLifecycleHandlers({
       expoManager: this.expoManager,
+      maestroManager: this.maestroManager,
     });
 
     this.maestroProxy = createMaestroToolsProxy({

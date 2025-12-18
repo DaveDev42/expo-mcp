@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import { ExpoManager } from '../managers/expo.js';
+import { MaestroManager } from '../managers/maestro.js';
 
 export interface LifecycleTools {
   expoManager: ExpoManager;
+  maestroManager: MaestroManager;
 }
 
 // Tool schemas with clear descriptions
@@ -61,6 +63,12 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
       const target = managers.expoManager.getTarget();
       const host = managers.expoManager.getHost();
 
+      // Get connected device info if server is running
+      let device: { device_id: string; device_name: string; platform: string } | null = null;
+      if (status === 'running') {
+        device = await managers.maestroManager.getConnectedDevice();
+      }
+
       const result = {
         expo_server: {
           status,
@@ -70,6 +78,13 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
           url: status === 'running' ? `http://localhost:${port}` : null,
           exp_url: status === 'running' ? `exp://localhost:${port}` : null,
         },
+        device: device
+          ? {
+              device_id: device.device_id,
+              device_name: device.device_name,
+              platform: device.platform,
+            }
+          : null,
       };
 
       return {
@@ -84,6 +99,14 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
 
     async launch_expo(args: z.infer<typeof lifecycleToolSchemas.launch_expo.inputSchema>) {
       const result = await managers.expoManager.launch(args);
+
+      // Get connected device info after launching (with small delay for device to connect)
+      let device: { device_id: string; device_name: string; platform: string } | null = null;
+      if (result.target) {
+        // Wait a bit for simulator/emulator to be detected
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        device = await managers.maestroManager.getConnectedDevice();
+      }
 
       // Generate appropriate message based on target and host
       let message: string;
@@ -110,6 +133,9 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
             text: JSON.stringify(
               {
                 ...result,
+                device_id: device?.device_id ?? null,
+                device_name: device?.device_name ?? null,
+                platform: device?.platform ?? null,
                 message,
               },
               null,

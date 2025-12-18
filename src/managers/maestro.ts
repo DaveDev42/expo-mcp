@@ -100,6 +100,41 @@ export class MaestroManager {
     return Array.from(this.tools.values());
   }
 
+  /**
+   * Get the first connected device info
+   */
+  async getConnectedDevice(): Promise<{ device_id: string; device_name: string; platform: string } | null> {
+    if (!this.isInitialized) {
+      try {
+        await this.initialize();
+      } catch {
+        return null;
+      }
+    }
+
+    try {
+      const result = await this.callTool('list_devices', {});
+      const text = result.content?.[0]?.text;
+      if (!text) return null;
+
+      const data = JSON.parse(text);
+      const devices = data.devices || [];
+      const connected = devices.find((d: any) => d.connected === true);
+
+      if (connected) {
+        return {
+          device_id: connected.device_id,
+          device_name: connected.name,
+          platform: connected.platform,
+        };
+      }
+    } catch (error) {
+      console.error('[Maestro] Failed to get connected device:', error);
+    }
+
+    return null;
+  }
+
   async callTool(name: string, args: any): Promise<MaestroToolCallResult> {
     if (!this.isInitialized) {
       throw new Error('MaestroManager not initialized. Call initialize() first.');
