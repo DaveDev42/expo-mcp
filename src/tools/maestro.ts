@@ -1,8 +1,12 @@
 import { MaestroManager } from '../managers/maestro.js';
+import { processScreenshotResponse } from '../utils/image.js';
 
 export interface MaestroToolsProxy {
   maestroManager: MaestroManager;
 }
+
+// Tools that return images and need resize processing
+const SCREENSHOT_TOOLS = ['take_screenshot'];
 
 export function createMaestroToolsProxy(managers: MaestroToolsProxy) {
   return {
@@ -19,7 +23,14 @@ export function createMaestroToolsProxy(managers: MaestroToolsProxy) {
     },
 
     async callTool(name: string, args: any) {
-      return await managers.maestroManager.callTool(name, args);
+      const result = await managers.maestroManager.callTool(name, args);
+
+      // Process screenshot responses to resize images if needed
+      if (SCREENSHOT_TOOLS.includes(name)) {
+        return await processScreenshotResponse(result);
+      }
+
+      return result;
     },
   };
 }

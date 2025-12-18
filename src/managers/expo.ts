@@ -1,6 +1,7 @@
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, ChildProcess, execSync } from 'child_process';
 import { setTimeout } from 'timers/promises';
 import { networkInterfaces } from 'os';
+import { existsSync } from 'fs';
 
 export type ExpoTarget = 'ios-simulator' | 'android-emulator' | 'web-browser';
 export type ExpoHost = 'lan' | 'tunnel' | 'localhost';
@@ -65,9 +66,157 @@ export class ExpoManager {
   private target: ExpoTarget | null = null;
   private host: ExpoHost = 'lan';
   private appDir: string;
+  private static readonly EXPO_GO_MIN_STORAGE_MB = 300; // Expo Go APK is ~186MB, need extra for extraction
 
   constructor(appDir?: string) {
     this.appDir = appDir ?? process.env.EXPO_APP_DIR ?? process.cwd();
+  }
+
+  /**
+   * Get ADB path (tries common locations)
+   */
+  private getAdbPath(): string | null {
+    const commonPaths = [
+      process.env.ANDROID_HOME && `${process.env.ANDROID_HOME}/platform-tools/adb`,
+      `${process.env.HOME}/Library/Android/sdk/platform-tools/adb`,
+      '/usr/local/bin/adb',
+      'adb', // Fallback to PATH
+    ].filter(Boolean) as string[];
+
+    for (const adbPath of commonPaths) {
+      try {
+        execSync(`${adbPath} version`, { stdio: 'pipe' });
+        return adbPath;
+      } catch {
+        // Try next path
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Get connected Android device ID
+   */
+  private getConnectedAndroidDevice(adbPath: string): string | null {
+    try {
+      const output = execSync(`${adbPath} devices`, { encoding: 'utf8' });
+      const lines = output.split('\n').slice(1); // Skip header
+      for (const line of lines) {
+        const [deviceId, status] = line.trim().split(/\s+/);
+        if (deviceId && status === 'device') {
+          return deviceId;
+        }
+      }
+    } catch {
+      // No device connected
+    }
+    return null;
+  }
+
+  /**
+   * Check available storage on Android device (in MB)
+   */
+  private getAndroidAvailableStorage(adbPath: string, deviceId: string): number {
+    try {
+      const output = execSync(`${adbPath} -s ${deviceId} shell df /data`, { encoding: 'utf8' });
+      // Parse df output - two possible formats:
+      // 1. Human readable: "Filesystem Size Used Avail Use% Mounted on" with values like "542M"
+      // 2. 1K-blocks: "Filesystem 1K-blocks Used Available Use% Mounted on" with numeric values
+      const lines = output.trim().split('\n');
+      if (lines.length >= 2) {
+        const header = lines[0].toLowerCase();
+        const parts = lines[1].split(/\s+/);
+        // Avail/Available is typically the 4th column (index 3)
+        const availStr = parts[3];
+        if (availStr) {
+          // Check if header indicates 1K-blocks format
+          const is1KBlocks = header.includes('1k-block') || header.includes('1k block');
+
+          // Try to parse - could be "542M", "1.2G", or plain number
+          const match = availStr.match(/^(\d+(?:\.\d+)?)\s*([KMGT])?/i);
+          if (match) {
+            let value = parseFloat(match[1]);
+            const unit = (match[2] || '').toUpperCase();
+
+            if (unit === 'K') {
+              value /= 1024; // KB to MB
+            } else if (unit === 'M') {
+              // Already in MB
+            } else if (unit === 'G') {
+              value *= 1024; // GB to MB
+            } else if (unit === 'T') {
+              value *= 1024 * 1024; // TB to MB
+            } else if (!unit) {
+              // No unit - check if it's 1K-blocks format
+              if (is1KBlocks) {
+                value /= 1024; // 1K-blocks to MB
+              } else {
+                // Assume bytes
+                value /= (1024 * 1024);
+              }
+            }
+            return Math.floor(value);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[Expo] Failed to check Android storage:', error);
+    }
+    return 0;
+  }
+
+  /**
+   * Free up storage on Android device by clearing caches
+   */
+  private async freeAndroidStorage(adbPath: string, deviceId: string): Promise<void> {
+    console.error('[Expo] Attempting to free Android storage...');
+
+    const commands = [
+      // Clear package manager caches
+      'pm trim-caches 999999999999',
+      // Clear Google Play Services cache (often large)
+      'pm clear com.google.android.gms 2>/dev/null || true',
+      // Clear Chrome cache if installed
+      'pm clear com.android.chrome 2>/dev/null || true',
+      // Remove large pre-installed apps (user 0 only, recoverable)
+      'pm uninstall -k --user 0 com.google.android.youtube 2>/dev/null || true',
+      'pm uninstall -k --user 0 com.google.android.apps.maps 2>/dev/null || true',
+      'pm uninstall -k --user 0 com.google.android.videos 2>/dev/null || true',
+    ];
+
+    for (const cmd of commands) {
+      try {
+        execSync(`${adbPath} -s ${deviceId} shell ${cmd}`, { stdio: 'pipe' });
+      } catch {
+        // Continue even if some commands fail
+      }
+    }
+
+    console.error('[Expo] Storage cleanup completed');
+  }
+
+  /**
+   * Ensure Android device has enough storage for Expo Go
+   */
+  private async ensureAndroidStorage(adbPath: string, deviceId: string): Promise<void> {
+    let availableMB = this.getAndroidAvailableStorage(adbPath, deviceId);
+    console.error(`[Expo] Android available storage: ${availableMB}MB (need ${ExpoManager.EXPO_GO_MIN_STORAGE_MB}MB)`);
+
+    if (availableMB < ExpoManager.EXPO_GO_MIN_STORAGE_MB) {
+      console.error('[Expo] Insufficient storage, attempting cleanup...');
+      await this.freeAndroidStorage(adbPath, deviceId);
+
+      // Check again after cleanup
+      availableMB = this.getAndroidAvailableStorage(adbPath, deviceId);
+      console.error(`[Expo] Android available storage after cleanup: ${availableMB}MB`);
+
+      if (availableMB < ExpoManager.EXPO_GO_MIN_STORAGE_MB) {
+        throw new Error(
+          `Insufficient storage on Android device. Available: ${availableMB}MB, Required: ${ExpoManager.EXPO_GO_MIN_STORAGE_MB}MB. ` +
+            'Please free up space manually or use an emulator with more storage.'
+        );
+      }
+    }
   }
 
   async launch(options: ExpoLaunchOptions = {}): Promise<ExpoLaunchResult> {
@@ -78,6 +227,17 @@ export class ExpoManager {
 
     if (this.process) {
       throw new Error('Expo server is already running. Stop it first.');
+    }
+
+    // Pre-flight check for Android storage
+    if (target === 'android-emulator') {
+      const adbPath = this.getAdbPath();
+      if (adbPath) {
+        const deviceId = this.getConnectedAndroidDevice(adbPath);
+        if (deviceId) {
+          await this.ensureAndroidStorage(adbPath, deviceId);
+        }
+      }
     }
 
     this.port = port;

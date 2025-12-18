@@ -19,6 +19,9 @@ export class MaestroManager {
   private pendingRequests: Map<number, { resolve: (value: any) => void; reject: (error: Error) => void }> = new Map();
   private readBuffer = '';
   private isInitialized = false;
+  private lastConnectedDevice: string | null = null;
+  private consecutiveErrors = 0;
+  private static readonly MAX_CONSECUTIVE_ERRORS = 2;
 
   async initialize(): Promise<void> {
     if (this.isInitialized) {
@@ -92,6 +95,18 @@ export class MaestroManager {
     this.cleanup();
   }
 
+  /**
+   * Restart Maestro MCP process (useful when switching devices)
+   */
+  async restart(): Promise<void> {
+    console.error('[Maestro] Restarting Maestro MCP...');
+    await this.shutdown();
+    await setTimeout(500);
+    this.consecutiveErrors = 0;
+    await this.initialize();
+    console.error('[Maestro] Maestro MCP restarted successfully');
+  }
+
   isReady(): boolean {
     return this.isInitialized;
   }
@@ -135,7 +150,7 @@ export class MaestroManager {
     return null;
   }
 
-  async callTool(name: string, args: any): Promise<MaestroToolCallResult> {
+  async callTool(name: string, args: any, isRetry = false): Promise<MaestroToolCallResult> {
     if (!this.isInitialized) {
       throw new Error('MaestroManager not initialized. Call initialize() first.');
     }
@@ -144,20 +159,51 @@ export class MaestroManager {
       throw new Error(`Tool "${name}" not found in Maestro MCP`);
     }
 
-    const response = await this.sendRequest({
-      jsonrpc: '2.0',
-      method: 'tools/call',
-      params: {
-        name,
-        arguments: args,
-      },
-      id: this.requestId++,
-    });
+    try {
+      const response = await this.sendRequest({
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          name,
+          arguments: args,
+        },
+        id: this.requestId++,
+      });
 
-    if (response.content) {
-      return response;
+      // Check if response contains an error (Maestro returns errors in content)
+      if (response.content?.[0]?.text) {
+        const text = response.content[0].text;
+        if (text.includes('UNAVAILABLE') || text.includes('io exception') || text.includes('grpc')) {
+          throw new Error(text);
+        }
+      }
+
+      // Success - reset error counter
+      this.consecutiveErrors = 0;
+
+      if (response.content) {
+        return response;
+      }
+      return { content: [{ type: 'text', text: JSON.stringify(response) }] };
+    } catch (error: any) {
+      const errorMessage = error.message || String(error);
+
+      // Check if this is a device connection error
+      if (errorMessage.includes('UNAVAILABLE') || errorMessage.includes('io exception') || errorMessage.includes('grpc')) {
+        this.consecutiveErrors++;
+        console.error(`[Maestro] Connection error (${this.consecutiveErrors}/${MaestroManager.MAX_CONSECUTIVE_ERRORS}): ${errorMessage}`);
+
+        // Auto-restart on consecutive errors (device might have changed)
+        if (!isRetry && this.consecutiveErrors >= MaestroManager.MAX_CONSECUTIVE_ERRORS) {
+          console.error('[Maestro] Too many consecutive errors, restarting Maestro...');
+          await this.restart();
+          // Retry once after restart
+          return this.callTool(name, args, true);
+        }
+      }
+
+      throw error;
     }
-    return { content: [{ type: 'text', text: JSON.stringify(response) }] };
   }
 
   private handleStdout(data: string): void {
