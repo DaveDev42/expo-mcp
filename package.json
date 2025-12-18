@@ -14,9 +14,7 @@
   "scripts": {
     "build": "rm -rf dist && tsc && chmod +x dist/index.js",
     "dev": "tsc --watch",
-    "typecheck": "tsc --noEmit",
-    "prepare": "npm run build",
-    "prepublishOnly": "npm run build"
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "mcp",
