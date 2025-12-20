@@ -10,10 +10,13 @@ export class MaestroManager {
     lastConnectedDevice = null;
     consecutiveErrors = 0;
     static MAX_CONSECUTIVE_ERRORS = 2;
+    // Current target device ID for auto-injection
+    targetDeviceId = null;
     async initialize() {
         if (this.isInitialized) {
             return;
         }
+        console.error('[Maestro] Starting Maestro MCP process...');
         const maestroPath = '/Users/dave/.maestro/bin/maestro';
         this.process = spawn(maestroPath, ['mcp'], {
             stdio: ['pipe', 'pipe', 'pipe'],
@@ -23,7 +26,11 @@ export class MaestroManager {
             this.handleStdout(data);
         });
         this.process.stderr?.on('data', (data) => {
-            console.error(`[Maestro stderr] ${data.toString()}`);
+            const str = data.toString();
+            // Only log non-warning messages
+            if (!str.includes('WARNING:')) {
+                console.error(`[Maestro stderr] ${str}`);
+            }
         });
         this.process.on('exit', (code) => {
             console.error(`[Maestro] Process exited with code ${code}`);
@@ -33,6 +40,7 @@ export class MaestroManager {
             console.error(`[Maestro] Process error:`, error);
             this.cleanup();
         });
+        console.error('[Maestro] Sending initialize request...');
         // Initialize connection (MCP protocol requires these fields)
         await this.sendRequest({
             jsonrpc: '2.0',
@@ -47,14 +55,18 @@ export class MaestroManager {
             },
             id: this.requestId++,
         });
+        console.error('[Maestro] Initialize response received');
         // List tools
+        console.error('[Maestro] Fetching tools list...');
         const toolsResponse = await this.sendRequest({ jsonrpc: '2.0', method: 'tools/list', params: {}, id: this.requestId++ });
         if (toolsResponse.tools) {
             for (const tool of toolsResponse.tools) {
                 this.tools.set(tool.name, tool);
             }
+            console.error(`[Maestro] Loaded ${this.tools.size} tools`);
         }
         this.isInitialized = true;
+        console.error('[Maestro] Initialization complete');
     }
     async shutdown() {
         if (!this.process) {
@@ -85,7 +97,44 @@ export class MaestroManager {
         return Array.from(this.tools.values());
     }
     /**
-     * Get the first connected device info
+     * Get the current target device ID
+     */
+    getTargetDeviceId() {
+        return this.targetDeviceId;
+    }
+    /**
+     * Set the target device ID for auto-injection into tool calls
+     */
+    setTargetDeviceId(deviceId) {
+        this.targetDeviceId = deviceId;
+    }
+    /**
+     * Switch to a different device by updating the target device ID
+     * Note: Maestro MCP doesn't require restart - each tool call takes device_id as argument
+     */
+    async switchDevice(deviceId) {
+        console.error(`[Maestro] Switching target device to: ${deviceId}`);
+        this.targetDeviceId = deviceId;
+    }
+    /**
+     * Wait for a device to be connected with polling
+     * @param timeoutMs Maximum time to wait in milliseconds
+     * @param pollIntervalMs Interval between checks in milliseconds
+     * @returns Connected device info or null if timeout
+     */
+    async waitForDeviceConnection(timeoutMs = 30000, pollIntervalMs = 1000) {
+        const startTime = Date.now();
+        while (Date.now() - startTime < timeoutMs) {
+            const device = await this.getConnectedDevice();
+            if (device) {
+                return device;
+            }
+            await setTimeout(pollIntervalMs);
+        }
+        return null;
+    }
+    /**
+     * Get the first connected device info and auto-set as target
      */
     async getConnectedDevice() {
         if (!this.isInitialized) {
@@ -105,6 +154,11 @@ export class MaestroManager {
             const devices = data.devices || [];
             const connected = devices.find((d) => d.connected === true);
             if (connected) {
+                // Auto-set as target device if not already set
+                if (!this.targetDeviceId) {
+                    console.error(`[Maestro] Auto-setting target device: ${connected.device_id}`);
+                    this.targetDeviceId = connected.device_id;
+                }
                 return {
                     device_id: connected.device_id,
                     device_name: connected.name,
@@ -116,6 +170,41 @@ export class MaestroManager {
             console.error('[Maestro] Failed to get connected device:', error);
         }
         return null;
+    }
+    /**
+     * Get all available devices (does NOT auto-set target device)
+     */
+    async listDevices() {
+        if (!this.isInitialized) {
+            try {
+                await this.initialize();
+            }
+            catch {
+                return [];
+            }
+        }
+        try {
+            // Call list_devices directly without going through callTool
+            // to avoid auto-setting target device
+            const response = await this.sendRequest({
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: {
+                    name: 'list_devices',
+                    arguments: {},
+                },
+                id: this.requestId++,
+            });
+            const text = response.content?.[0]?.text;
+            if (!text)
+                return [];
+            const data = JSON.parse(text);
+            return data.devices || [];
+        }
+        catch (error) {
+            console.error('[Maestro] Failed to list devices:', error);
+            return [];
+        }
     }
     async callTool(name, args, isRetry = false) {
         if (!this.isInitialized) {

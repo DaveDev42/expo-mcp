@@ -8,6 +8,19 @@ export interface MaestroToolsProxy {
 // Tools that return images and need resize processing
 const SCREENSHOT_TOOLS = ['take_screenshot'];
 
+// Tools that require device_id parameter
+const DEVICE_REQUIRED_TOOLS = [
+  'take_screenshot',
+  'tap_on',
+  'input_text',
+  'back',
+  'launch_app',
+  'stop_app',
+  'run_flow',
+  'run_flow_files',
+  'inspect_view_hierarchy',
+];
+
 export function createMaestroToolsProxy(managers: MaestroToolsProxy) {
   return {
     async getTools() {
@@ -22,8 +35,48 @@ export function createMaestroToolsProxy(managers: MaestroToolsProxy) {
       return managers.maestroManager.getTools();
     },
 
+    /**
+     * Get current target device ID
+     */
+    getTargetDeviceId(): string | null {
+      return managers.maestroManager.getTargetDeviceId();
+    },
+
+    /**
+     * Switch to a different device
+     */
+    async switchDevice(deviceId: string): Promise<void> {
+      await managers.maestroManager.switchDevice(deviceId);
+    },
+
+    /**
+     * List all available devices
+     */
+    async listDevices() {
+      return managers.maestroManager.listDevices();
+    },
+
     async callTool(name: string, args: any) {
-      const result = await managers.maestroManager.callTool(name, args);
+      // Auto-inject device_id if not provided and tool requires it
+      let enhancedArgs = { ...args };
+
+      if (DEVICE_REQUIRED_TOOLS.includes(name) && !args.device_id) {
+        const targetDeviceId = managers.maestroManager.getTargetDeviceId();
+
+        if (targetDeviceId) {
+          console.error(`[expo-mcp] Auto-injecting device_id: ${targetDeviceId} for tool: ${name}`);
+          enhancedArgs = { ...args, device_id: targetDeviceId };
+        } else {
+          // Try to get connected device and set as target
+          const device = await managers.maestroManager.getConnectedDevice();
+          if (device) {
+            console.error(`[expo-mcp] Auto-detected device_id: ${device.device_id} for tool: ${name}`);
+            enhancedArgs = { ...args, device_id: device.device_id };
+          }
+        }
+      }
+
+      const result = await managers.maestroManager.callTool(name, enhancedArgs);
 
       // Process screenshot responses to resize images if needed
       if (SCREENSHOT_TOOLS.includes(name)) {
