@@ -51,14 +51,12 @@ export function createMaestroToolsProxy(managers) {
             if (DEVICE_REQUIRED_TOOLS.includes(name) && !args.device_id) {
                 const targetDeviceId = managers.maestroManager.getTargetDeviceId();
                 if (targetDeviceId) {
-                    console.error(`[expo-mcp] Auto-injecting device_id: ${targetDeviceId} for tool: ${name}`);
                     enhancedArgs = { ...args, device_id: targetDeviceId };
                 }
                 else {
                     // Try to get connected device and set as target
                     const device = await managers.maestroManager.getConnectedDevice();
                     if (device) {
-                        console.error(`[expo-mcp] Auto-detected device_id: ${device.device_id} for tool: ${name}`);
                         enhancedArgs = { ...args, device_id: device.device_id };
                     }
                 }
