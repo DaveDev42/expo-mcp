@@ -86,8 +86,8 @@ export class McpServer {
       });
 
       const allMaestroTools: Tool[] = (await this.maestroProxy.getTools()).map((tool) => ({
-        name: `maestro_${tool.name}`,
-        description: `[Maestro] ${tool.description}`,
+        name: tool.name,
+        description: tool.description,
         inputSchema: tool.inputSchema,
       }));
 
@@ -129,31 +129,30 @@ export class McpServer {
         }
       }
 
-      // Check if it's a maestro tool
-      if (name.startsWith('maestro_')) {
-        const maestroToolName = name.substring('maestro_'.length);
-        try {
-          // Lazy initialize Maestro on first use
-          if (!this.maestroManager.isReady()) {
-            console.error('[expo-mcp] Initializing Maestro MCP on first use...');
-            await this.maestroManager.initialize();
-            console.error('[expo-mcp] Maestro MCP initialized successfully');
-          }
-          return await this.maestroProxy.callTool(maestroToolName, args || {});
-        } catch (error: any) {
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: `Error: ${error.message}`,
-              },
-            ],
-            isError: true,
-          };
+      // Try maestro tool (no prefix needed)
+      try {
+        // Lazy initialize Maestro on first use
+        if (!this.maestroManager.isReady()) {
+          console.error('[expo-mcp] Initializing Maestro MCP on first use...');
+          await this.maestroManager.initialize();
+          console.error('[expo-mcp] Maestro MCP initialized successfully');
         }
+        return await this.maestroProxy.callTool(name, args || {});
+      } catch (error: any) {
+        // If maestro doesn't have the tool, it's unknown
+        if (error.message?.includes('Unknown tool')) {
+          throw new Error(`Unknown tool: ${name}`);
+        }
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `Error: ${error.message}`,
+            },
+          ],
+          isError: true,
+        };
       }
-
-      throw new Error(`Unknown tool: ${name}`);
     });
   }
 
