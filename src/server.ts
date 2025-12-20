@@ -12,6 +12,13 @@ import { MaestroManager } from './managers/maestro.js';
 import { lifecycleToolSchemas, createLifecycleHandlers } from './tools/lifecycle.js';
 import { createMaestroToolsProxy } from './tools/maestro.js';
 
+// Parse ESSENTIAL_TOOLS from environment
+function getEssentialTools(): Set<string> | null {
+  const envValue = process.env.ESSENTIAL_TOOLS;
+  if (!envValue) return null; // null means show all tools
+  return new Set(envValue.split(',').map((t) => t.trim()).filter(Boolean));
+}
+
 export class McpServer {
   private server: Server;
   private expoManager: ExpoManager;
@@ -50,9 +57,12 @@ export class McpServer {
   }
 
   private setupHandlers() {
+    // Get essential tools filter (null = show all)
+    const essentialTools = getEssentialTools();
+
     // List tools handler
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
-      const lifecycleTools: Tool[] = Object.values(lifecycleToolSchemas).map((schema) => {
+      const allLifecycleTools: Tool[] = Object.values(lifecycleToolSchemas).map((schema) => {
         const properties: Record<string, any> = {};
 
         if (schema.inputSchema.shape) {
@@ -75,14 +85,21 @@ export class McpServer {
         };
       });
 
-      const maestroTools: Tool[] = (await this.maestroProxy.getTools()).map((tool) => ({
+      const allMaestroTools: Tool[] = (await this.maestroProxy.getTools()).map((tool) => ({
         name: `maestro_${tool.name}`,
         description: `[Maestro] ${tool.description}`,
         inputSchema: tool.inputSchema,
       }));
 
+      const allTools = [...allLifecycleTools, ...allMaestroTools];
+
+      // Filter tools if ESSENTIAL_TOOLS is set
+      const filteredTools = essentialTools
+        ? allTools.filter((tool) => essentialTools.has(tool.name))
+        : allTools;
+
       return {
-        tools: [...lifecycleTools, ...maestroTools],
+        tools: filteredTools,
       };
     });
 
