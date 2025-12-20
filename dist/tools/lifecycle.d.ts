@@ -46,8 +46,8 @@ export declare const lifecycleToolSchemas: {
             port?: number | undefined;
             target?: "ios-simulator" | "android-emulator" | "web-browser" | undefined;
             host?: "lan" | "tunnel" | "localhost" | undefined;
-            offline?: boolean | undefined;
             clear?: boolean | undefined;
+            offline?: boolean | undefined;
             dev?: boolean | undefined;
             minify?: boolean | undefined;
             max_workers?: number | undefined;
@@ -58,8 +58,8 @@ export declare const lifecycleToolSchemas: {
             port?: number | undefined;
             target?: "ios-simulator" | "android-emulator" | "web-browser" | undefined;
             host?: "lan" | "tunnel" | "localhost" | undefined;
-            offline?: boolean | undefined;
             clear?: boolean | undefined;
+            offline?: boolean | undefined;
             dev?: boolean | undefined;
             minify?: boolean | undefined;
             max_workers?: number | undefined;
@@ -72,6 +72,26 @@ export declare const lifecycleToolSchemas: {
         name: string;
         description: string;
         inputSchema: z.ZodObject<{}, "strip", z.ZodTypeAny, {}, {}>;
+    };
+    get_logs: {
+        name: string;
+        description: string;
+        inputSchema: z.ZodObject<{
+            limit: z.ZodOptional<z.ZodNumber>;
+            clear: z.ZodOptional<z.ZodBoolean>;
+            level: z.ZodOptional<z.ZodEnum<["log", "info", "warn", "error"]>>;
+            source: z.ZodOptional<z.ZodEnum<["stdout", "stderr"]>>;
+        }, "strip", z.ZodTypeAny, {
+            limit?: number | undefined;
+            clear?: boolean | undefined;
+            level?: "log" | "info" | "warn" | "error" | undefined;
+            source?: "stdout" | "stderr" | undefined;
+        }, {
+            limit?: number | undefined;
+            clear?: boolean | undefined;
+            level?: "log" | "info" | "warn" | "error" | undefined;
+            source?: "stdout" | "stderr" | undefined;
+        }>;
     };
 };
 export declare function createLifecycleHandlers(managers: LifecycleTools): {
@@ -107,6 +127,12 @@ export declare function createLifecycleHandlers(managers: LifecycleTools): {
         }[];
     }>;
     stop_expo(): Promise<{
+        content: {
+            type: "text";
+            text: string;
+        }[];
+    }>;
+    get_logs(args: z.infer<typeof lifecycleToolSchemas.get_logs.inputSchema>): Promise<{
         content: {
             type: "text";
             text: string;

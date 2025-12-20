@@ -52,6 +52,19 @@ export const lifecycleToolSchemas = {
         description: 'Stop Expo server',
         inputSchema: z.object({}),
     },
+    get_logs: {
+        name: 'get_logs',
+        description: 'Get Metro bundler logs and console output from the running Expo app',
+        inputSchema: z.object({
+            limit: z.number().optional().describe('Maximum number of log lines to return (default: all)'),
+            clear: z.boolean().optional().describe('Clear the log buffer after reading (default: false)'),
+            level: z
+                .enum(['log', 'info', 'warn', 'error'])
+                .optional()
+                .describe('Filter by minimum log level (log < info < warn < error)'),
+            source: z.enum(['stdout', 'stderr']).optional().describe('Filter by output source'),
+        }),
+    },
 };
 export function createLifecycleHandlers(managers) {
     return {
@@ -191,6 +204,34 @@ export function createLifecycleHandlers(managers) {
                     {
                         type: 'text',
                         text: 'Expo server stopped',
+                    },
+                ],
+            };
+        },
+        async get_logs(args) {
+            const logs = managers.expoManager.getLogs({
+                limit: args.limit,
+                clear: args.clear,
+                level: args.level,
+                source: args.source,
+            });
+            if (logs.length === 0) {
+                return {
+                    content: [
+                        {
+                            type: 'text',
+                            text: 'No logs available. Make sure Expo server is running.',
+                        },
+                    ],
+                };
+            }
+            // Format logs: [LEVEL] message
+            const formatted = logs.map((l) => `[${l.level.toUpperCase()}] ${l.message}`).join('\n');
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: formatted,
                     },
                 ],
             };

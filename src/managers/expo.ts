@@ -5,6 +5,22 @@ import { existsSync } from 'fs';
 
 export type ExpoTarget = 'ios-simulator' | 'android-emulator' | 'web-browser';
 export type ExpoHost = 'lan' | 'tunnel' | 'localhost';
+export type LogLevel = 'log' | 'info' | 'warn' | 'error';
+export type LogSource = 'stdout' | 'stderr';
+
+export interface LogEntry {
+  timestamp: number;
+  source: LogSource;
+  level: LogLevel;
+  message: string;
+}
+
+export interface GetLogsOptions {
+  limit?: number;
+  clear?: boolean;
+  level?: LogLevel;
+  source?: LogSource;
+}
 
 export interface ExpoLaunchOptions {
   /** Target: auto-launch simulator/emulator */
@@ -66,10 +82,19 @@ export class ExpoManager {
   private target: ExpoTarget | null = null;
   private host: ExpoHost = 'lan';
   private appDir: string;
+  private logBuffer: LogEntry[] = [];
+  private maxLogLines: number;
   private static readonly EXPO_GO_MIN_STORAGE_MB = 300; // Expo Go APK is ~186MB, need extra for extraction
+  private static readonly LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
+    log: 0,
+    info: 1,
+    warn: 2,
+    error: 3,
+  };
 
   constructor(appDir?: string) {
     this.appDir = appDir ?? process.env.EXPO_APP_DIR ?? process.cwd();
+    this.maxLogLines = parseInt(process.env.LOG_BUFFER_SIZE || '400', 10);
   }
 
   /**
@@ -309,13 +334,39 @@ export class ExpoManager {
       shell: process.platform === 'win32', // Only use shell on Windows
     });
 
-    // Capture output for debugging
+    // Capture output for debugging and log buffer
     this.process.stdout?.on('data', (data) => {
-      console.error(`[Expo stdout] ${data.toString()}`);
+      const text = data.toString();
+      const lines = text.split('\n').filter(Boolean);
+      for (const line of lines) {
+        this.logBuffer.push({
+          timestamp: Date.now(),
+          source: 'stdout',
+          level: this.parseLogLevel(line),
+          message: line,
+        });
+        if (this.logBuffer.length > this.maxLogLines) {
+          this.logBuffer.shift();
+        }
+      }
+      console.error(`[Expo stdout] ${text}`);
     });
 
     this.process.stderr?.on('data', (data) => {
-      console.error(`[Expo stderr] ${data.toString()}`);
+      const text = data.toString();
+      const lines = text.split('\n').filter(Boolean);
+      for (const line of lines) {
+        this.logBuffer.push({
+          timestamp: Date.now(),
+          source: 'stderr',
+          level: this.parseLogLevel(line, 'error'),
+          message: line,
+        });
+        if (this.logBuffer.length > this.maxLogLines) {
+          this.logBuffer.shift();
+        }
+      }
+      console.error(`[Expo stderr] ${text}`);
     });
 
     this.process.on('exit', (code) => {
@@ -402,6 +453,48 @@ export class ExpoManager {
 
   getHost(): ExpoHost {
     return this.host;
+  }
+
+  /**
+   * Parse log level from message content
+   */
+  private parseLogLevel(line: string, defaultLevel: LogLevel = 'log'): LogLevel {
+    if (/\b(error|ERR!|ERROR)\b/i.test(line)) return 'error';
+    if (/\b(warn|warning|WARN)\b/i.test(line)) return 'warn';
+    if (/\b(info|INFO)\b/i.test(line)) return 'info';
+    return defaultLevel;
+  }
+
+  /**
+   * Get captured logs with optional filtering
+   */
+  getLogs(options: GetLogsOptions = {}): LogEntry[] {
+    const { limit, clear = false, level, source } = options;
+
+    let logs = [...this.logBuffer];
+
+    // Filter by minimum log level
+    if (level) {
+      const minPriority = ExpoManager.LOG_LEVEL_PRIORITY[level];
+      logs = logs.filter((l) => ExpoManager.LOG_LEVEL_PRIORITY[l.level] >= minPriority);
+    }
+
+    // Filter by source
+    if (source) {
+      logs = logs.filter((l) => l.source === source);
+    }
+
+    // Apply limit (get last N entries)
+    if (limit) {
+      logs = logs.slice(-limit);
+    }
+
+    // Clear buffer if requested
+    if (clear) {
+      this.logBuffer = [];
+    }
+
+    return logs;
   }
 
   private async waitForServer(port: number, timeoutSecs: number): Promise<void> {

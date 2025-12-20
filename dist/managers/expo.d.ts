@@ -1,5 +1,19 @@
 export type ExpoTarget = 'ios-simulator' | 'android-emulator' | 'web-browser';
 export type ExpoHost = 'lan' | 'tunnel' | 'localhost';
+export type LogLevel = 'log' | 'info' | 'warn' | 'error';
+export type LogSource = 'stdout' | 'stderr';
+export interface LogEntry {
+    timestamp: number;
+    source: LogSource;
+    level: LogLevel;
+    message: string;
+}
+export interface GetLogsOptions {
+    limit?: number;
+    clear?: boolean;
+    level?: LogLevel;
+    source?: LogSource;
+}
 export interface ExpoLaunchOptions {
     /** Target: auto-launch simulator/emulator */
     target?: ExpoTarget;
@@ -37,7 +51,10 @@ export declare class ExpoManager {
     private target;
     private host;
     private appDir;
+    private logBuffer;
+    private maxLogLines;
     private static readonly EXPO_GO_MIN_STORAGE_MB;
+    private static readonly LOG_LEVEL_PRIORITY;
     constructor(appDir?: string);
     /**
      * Get ADB path (tries common locations)
@@ -65,6 +82,14 @@ export declare class ExpoManager {
     getPort(): number;
     getTarget(): ExpoTarget | null;
     getHost(): ExpoHost;
+    /**
+     * Parse log level from message content
+     */
+    private parseLogLevel;
+    /**
+     * Get captured logs with optional filtering
+     */
+    getLogs(options?: GetLogsOptions): LogEntry[];
     private waitForServer;
 }
 //# sourceMappingURL=expo.d.ts.map

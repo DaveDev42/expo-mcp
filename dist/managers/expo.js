@@ -22,9 +22,18 @@ export class ExpoManager {
     target = null;
     host = 'lan';
     appDir;
+    logBuffer = [];
+    maxLogLines;
     static EXPO_GO_MIN_STORAGE_MB = 300; // Expo Go APK is ~186MB, need extra for extraction
+    static LOG_LEVEL_PRIORITY = {
+        log: 0,
+        info: 1,
+        warn: 2,
+        error: 3,
+    };
     constructor(appDir) {
         this.appDir = appDir ?? process.env.EXPO_APP_DIR ?? process.cwd();
+        this.maxLogLines = parseInt(process.env.LOG_BUFFER_SIZE || '400', 10);
     }
     /**
      * Get ADB path (tries common locations)
@@ -251,12 +260,38 @@ export class ExpoManager {
             detached: true,
             shell: process.platform === 'win32', // Only use shell on Windows
         });
-        // Capture output for debugging
+        // Capture output for debugging and log buffer
         this.process.stdout?.on('data', (data) => {
-            console.error(`[Expo stdout] ${data.toString()}`);
+            const text = data.toString();
+            const lines = text.split('\n').filter(Boolean);
+            for (const line of lines) {
+                this.logBuffer.push({
+                    timestamp: Date.now(),
+                    source: 'stdout',
+                    level: this.parseLogLevel(line),
+                    message: line,
+                });
+                if (this.logBuffer.length > this.maxLogLines) {
+                    this.logBuffer.shift();
+                }
+            }
+            console.error(`[Expo stdout] ${text}`);
         });
         this.process.stderr?.on('data', (data) => {
-            console.error(`[Expo stderr] ${data.toString()}`);
+            const text = data.toString();
+            const lines = text.split('\n').filter(Boolean);
+            for (const line of lines) {
+                this.logBuffer.push({
+                    timestamp: Date.now(),
+                    source: 'stderr',
+                    level: this.parseLogLevel(line, 'error'),
+                    message: line,
+                });
+                if (this.logBuffer.length > this.maxLogLines) {
+                    this.logBuffer.shift();
+                }
+            }
+            console.error(`[Expo stderr] ${text}`);
         });
         this.process.on('exit', (code) => {
             console.error(`[Expo] Process exited with code ${code}`);
@@ -333,6 +368,43 @@ export class ExpoManager {
     }
     getHost() {
         return this.host;
+    }
+    /**
+     * Parse log level from message content
+     */
+    parseLogLevel(line, defaultLevel = 'log') {
+        if (/\b(error|ERR!|ERROR)\b/i.test(line))
+            return 'error';
+        if (/\b(warn|warning|WARN)\b/i.test(line))
+            return 'warn';
+        if (/\b(info|INFO)\b/i.test(line))
+            return 'info';
+        return defaultLevel;
+    }
+    /**
+     * Get captured logs with optional filtering
+     */
+    getLogs(options = {}) {
+        const { limit, clear = false, level, source } = options;
+        let logs = [...this.logBuffer];
+        // Filter by minimum log level
+        if (level) {
+            const minPriority = ExpoManager.LOG_LEVEL_PRIORITY[level];
+            logs = logs.filter((l) => ExpoManager.LOG_LEVEL_PRIORITY[l.level] >= minPriority);
+        }
+        // Filter by source
+        if (source) {
+            logs = logs.filter((l) => l.source === source);
+        }
+        // Apply limit (get last N entries)
+        if (limit) {
+            logs = logs.slice(-limit);
+        }
+        // Clear buffer if requested
+        if (clear) {
+            this.logBuffer = [];
+        }
+        return logs;
     }
     async waitForServer(port, timeoutSecs) {
         const startTime = Date.now();
