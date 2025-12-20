@@ -5,6 +5,13 @@ import { ExpoManager } from './managers/expo.js';
 import { MaestroManager } from './managers/maestro.js';
 import { lifecycleToolSchemas, createLifecycleHandlers } from './tools/lifecycle.js';
 import { createMaestroToolsProxy } from './tools/maestro.js';
+// Parse ESSENTIAL_TOOLS from environment
+function getEssentialTools() {
+    const envValue = process.env.ESSENTIAL_TOOLS;
+    if (!envValue)
+        return null; // null means show all tools
+    return new Set(envValue.split(',').map((t) => t.trim()).filter(Boolean));
+}
 export class McpServer {
     server;
     expoManager;
@@ -34,9 +41,11 @@ export class McpServer {
         this.setupHandlers();
     }
     setupHandlers() {
+        // Get essential tools filter (null = show all)
+        const essentialTools = getEssentialTools();
         // List tools handler
         this.server.setRequestHandler(ListToolsRequestSchema, async () => {
-            const lifecycleTools = Object.values(lifecycleToolSchemas).map((schema) => {
+            const allLifecycleTools = Object.values(lifecycleToolSchemas).map((schema) => {
                 const properties = {};
                 if (schema.inputSchema.shape) {
                     for (const [key, value] of Object.entries(schema.inputSchema.shape)) {
@@ -56,13 +65,18 @@ export class McpServer {
                     },
                 };
             });
-            const maestroTools = (await this.maestroProxy.getTools()).map((tool) => ({
-                name: `maestro_${tool.name}`,
-                description: `[Maestro] ${tool.description}`,
+            const allMaestroTools = (await this.maestroProxy.getTools()).map((tool) => ({
+                name: tool.name,
+                description: tool.description,
                 inputSchema: tool.inputSchema,
             }));
+            const allTools = [...allLifecycleTools, ...allMaestroTools];
+            // Filter tools if ESSENTIAL_TOOLS is set
+            const filteredTools = essentialTools
+                ? allTools.filter((tool) => essentialTools.has(tool.name))
+                : allTools;
             return {
-                tools: [...lifecycleTools, ...maestroTools],
+                tools: filteredTools,
             };
         });
         // Call tool handler
@@ -89,31 +103,31 @@ export class McpServer {
                     };
                 }
             }
-            // Check if it's a maestro tool
-            if (name.startsWith('maestro_')) {
-                const maestroToolName = name.substring('maestro_'.length);
-                try {
-                    // Lazy initialize Maestro on first use
-                    if (!this.maestroManager.isReady()) {
-                        console.error('[expo-mcp] Initializing Maestro MCP on first use...');
-                        await this.maestroManager.initialize();
-                        console.error('[expo-mcp] Maestro MCP initialized successfully');
-                    }
-                    return await this.maestroProxy.callTool(maestroToolName, args || {});
+            // Try maestro tool (no prefix needed)
+            try {
+                // Lazy initialize Maestro on first use
+                if (!this.maestroManager.isReady()) {
+                    console.error('[expo-mcp] Initializing Maestro MCP on first use...');
+                    await this.maestroManager.initialize();
+                    console.error('[expo-mcp] Maestro MCP initialized successfully');
                 }
-                catch (error) {
-                    return {
-                        content: [
-                            {
-                                type: 'text',
-                                text: `Error: ${error.message}`,
-                            },
-                        ],
-                        isError: true,
-                    };
-                }
+                return await this.maestroProxy.callTool(name, args || {});
             }
-            throw new Error(`Unknown tool: ${name}`);
+            catch (error) {
+                // If maestro doesn't have the tool, it's unknown
+                if (error.message?.includes('Unknown tool')) {
+                    throw new Error(`Unknown tool: ${name}`);
+                }
+                return {
+                    content: [
+                        {
+                            type: 'text',
+                            text: `Error: ${error.message}`,
+                        },
+                    ],
+                    isError: true,
+                };
+            }
         });
     }
     getZodType(zodSchema) {
