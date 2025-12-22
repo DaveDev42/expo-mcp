@@ -1,7 +1,6 @@
 import { spawn, ChildProcess, execSync } from 'child_process';
 import { setTimeout } from 'timers/promises';
 import { networkInterfaces } from 'os';
-import WebSocket from 'ws';
 
 export type ExpoTarget = 'ios-simulator' | 'android-emulator' | 'web-browser';
 export type ExpoHost = 'lan' | 'tunnel' | 'localhost';
@@ -328,7 +327,7 @@ export class ExpoManager {
 
     this.process = spawn('npx', args, {
       cwd: this.appDir,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe'],
       env,
       detached: true,
       shell: process.platform === 'win32', // Only use shell on Windows
@@ -463,27 +462,12 @@ export class ExpoManager {
       throw new Error('Expo server is not running');
     }
 
-    // Expo dev server uses WebSocket on /message endpoint for broadcasting commands
-    // This is the same mechanism used when pressing 'r' in the Expo CLI terminal
-    return new Promise((resolve, reject) => {
-      const ws = new WebSocket(`ws://localhost:${this.port}/message`);
-      const timeout = global.setTimeout(() => {
-        ws.close();
-        reject(new Error('Reload command timed out'));
-      }, 5000);
+    if (!this.process.stdin) {
+      throw new Error('Cannot send reload command: stdin not available');
+    }
 
-      ws.on('open', () => {
-        ws.send(JSON.stringify({ method: 'reload' }));
-        global.clearTimeout(timeout);
-        ws.close();
-        resolve();
-      });
-
-      ws.on('error', (err) => {
-        global.clearTimeout(timeout);
-        reject(new Error(`Failed to send reload command: ${err.message}`));
-      });
-    });
+    // Send 'r' to Metro CLI stdin - same as pressing 'r' in terminal
+    this.process.stdin.write('r');
   }
 
   /**
