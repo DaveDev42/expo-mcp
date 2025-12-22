@@ -35,11 +35,13 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
     "sharp": "^0.34.5",
+    "ws": "^8.18.3",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^22.19.1",
     "@types/sharp": "^0.32.0",
+    "@types/ws": "^8.18.1",
     "typescript": "^5.9.3"
   },
   "engines": {

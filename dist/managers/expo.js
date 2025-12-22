@@ -1,6 +1,7 @@
 import { spawn, execSync } from 'child_process';
 import { setTimeout } from 'timers/promises';
 import { networkInterfaces } from 'os';
+import WebSocket from 'ws';
 /**
  * Get the local network IP address for LAN connections
  */
@@ -376,16 +377,25 @@ export class ExpoManager {
         if (!this.process) {
             throw new Error('Expo server is not running');
         }
-        // Expo dev server exposes /message endpoint for broadcasting commands
+        // Expo dev server uses WebSocket on /message endpoint for broadcasting commands
         // This is the same mechanism used when pressing 'r' in the Expo CLI terminal
-        const response = await fetch(`http://localhost:${this.port}/message`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ method: 'reload' }),
+        return new Promise((resolve, reject) => {
+            const ws = new WebSocket(`ws://localhost:${this.port}/message`);
+            const timeout = global.setTimeout(() => {
+                ws.close();
+                reject(new Error('Reload command timed out'));
+            }, 5000);
+            ws.on('open', () => {
+                ws.send(JSON.stringify({ method: 'reload' }));
+                global.clearTimeout(timeout);
+                ws.close();
+                resolve();
+            });
+            ws.on('error', (err) => {
+                global.clearTimeout(timeout);
+                reject(new Error(`Failed to send reload command: ${err.message}`));
+            });
         });
-        if (!response.ok) {
-            throw new Error(`Failed to send reload command: ${response.statusText}`);
-        }
     }
     /**
      * Parse log level from message content
