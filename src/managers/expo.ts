@@ -456,6 +456,27 @@ export class ExpoManager {
   }
 
   /**
+   * Reload the app on all connected devices
+   */
+  async reload(): Promise<void> {
+    if (!this.process) {
+      throw new Error('Expo server is not running');
+    }
+
+    // Expo dev server exposes /message endpoint for broadcasting commands
+    // This is the same mechanism used when pressing 'r' in the Expo CLI terminal
+    const response = await fetch(`http://localhost:${this.port}/message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ method: 'reload' }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to send reload command: ${response.statusText}`);
+    }
+  }
+
+  /**
    * Parse log level from message content
    */
   private parseLogLevel(line: string, defaultLevel: LogLevel = 'log'): LogLevel {

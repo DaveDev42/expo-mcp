@@ -65,6 +65,11 @@ export const lifecycleToolSchemas = {
     description: 'Stop Expo server',
     inputSchema: z.object({}),
   },
+  reload_expo: {
+    name: 'reload_expo',
+    description: 'Reload the Expo app on connected devices (triggers Metro bundler refresh)',
+    inputSchema: z.object({}),
+  },
   get_logs: {
     name: 'get_logs',
     description: 'Get Metro bundler logs and console output from the running Expo app',
@@ -236,6 +241,18 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
           {
             type: 'text' as const,
             text: 'Expo server stopped',
+          },
+        ],
+      };
+    },
+
+    async reload_expo() {
+      await managers.expoManager.reload();
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: 'Reload command sent to connected devices',
           },
         ],
       };

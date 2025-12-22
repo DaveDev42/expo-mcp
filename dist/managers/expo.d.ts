@@ -83,6 +83,10 @@ export declare class ExpoManager {
     getTarget(): ExpoTarget | null;
     getHost(): ExpoHost;
     /**
+     * Reload the app on all connected devices
+     */
+    reload(): Promise<void>;
+    /**
      * Parse log level from message content
      */
     private parseLogLevel;

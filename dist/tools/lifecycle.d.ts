@@ -73,6 +73,11 @@ export declare const lifecycleToolSchemas: {
         description: string;
         inputSchema: z.ZodObject<{}, "strip", z.ZodTypeAny, {}, {}>;
     };
+    reload_expo: {
+        name: string;
+        description: string;
+        inputSchema: z.ZodObject<{}, "strip", z.ZodTypeAny, {}, {}>;
+    };
     get_logs: {
         name: string;
         description: string;
@@ -127,6 +132,12 @@ export declare function createLifecycleHandlers(managers: LifecycleTools): {
         }[];
     }>;
     stop_expo(): Promise<{
+        content: {
+            type: "text";
+            text: string;
+        }[];
+    }>;
+    reload_expo(): Promise<{
         content: {
             type: "text";
             text: string;
