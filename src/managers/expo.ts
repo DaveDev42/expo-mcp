@@ -1,6 +1,7 @@
 import { spawn, ChildProcess, execSync } from 'child_process';
 import { setTimeout } from 'timers/promises';
 import { networkInterfaces } from 'os';
+import WebSocket from 'ws';
 
 export type ExpoTarget = 'ios-simulator' | 'android-emulator' | 'web-browser';
 export type ExpoHost = 'lan' | 'tunnel' | 'localhost';
@@ -462,14 +463,28 @@ export class ExpoManager {
       throw new Error('Expo server is not running');
     }
 
-    // Use HTTP /reload endpoint - same as what Expo CLI uses internally
-    const response = await fetch(`http://localhost:${this.port}/reload`, {
-      method: 'POST',
-    });
+    // Use WebSocket /message endpoint to broadcast reload command
+    // Message format: { method: 'reload' } without id/target for broadcast
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(`ws://localhost:${this.port}/message`);
+      const timeout = global.setTimeout(() => {
+        ws.close();
+        reject(new Error('Reload command timed out'));
+      }, 5000);
 
-    if (!response.ok) {
-      throw new Error(`Reload failed: ${response.status} ${response.statusText}`);
-    }
+      ws.on('open', () => {
+        // Send broadcast message - must have method but NO id/target
+        ws.send(JSON.stringify({ method: 'reload' }));
+        global.clearTimeout(timeout);
+        ws.close();
+        resolve();
+      });
+
+      ws.on('error', (err) => {
+        global.clearTimeout(timeout);
+        reject(new Error(`Failed to send reload command: ${err.message}`));
+      });
+    });
   }
 
   /**
