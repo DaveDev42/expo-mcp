@@ -327,7 +327,7 @@ export class ExpoManager {
 
     this.process = spawn('npx', args, {
       cwd: this.appDir,
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe'],
       env,
       detached: true,
       shell: process.platform === 'win32', // Only use shell on Windows
@@ -462,12 +462,14 @@ export class ExpoManager {
       throw new Error('Expo server is not running');
     }
 
-    if (!this.process.stdin) {
-      throw new Error('Cannot send reload command: stdin not available');
-    }
+    // Use HTTP /reload endpoint - same as what Expo CLI uses internally
+    const response = await fetch(`http://localhost:${this.port}/reload`, {
+      method: 'POST',
+    });
 
-    // Send 'r' to Metro CLI stdin - same as pressing 'r' in terminal
-    this.process.stdin.write('r');
+    if (!response.ok) {
+      throw new Error(`Reload failed: ${response.status} ${response.statusText}`);
+    }
   }
 
   /**
