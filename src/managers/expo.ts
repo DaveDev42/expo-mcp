@@ -484,7 +484,8 @@ export class ExpoManager {
 
       ws.on('open', () => {
         // Send reload message in the format expected by Metro/Expo
-        const message = JSON.stringify({ method: 'reload' });
+        // Protocol version 2 is required
+        const message = JSON.stringify({ version: 2, method: 'reload' });
         ws.send(message);
 
         // Give it a moment to broadcast, then close
