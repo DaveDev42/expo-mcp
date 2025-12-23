@@ -1,6 +1,7 @@
 import { spawn, execSync } from 'child_process';
 import { setTimeout } from 'timers/promises';
 import { networkInterfaces } from 'os';
+import { WebSocket } from 'ws';
 /**
  * Get the local network IP address for LAN connections
  */
@@ -370,14 +371,11 @@ export class ExpoManager {
         return this.host;
     }
     /**
-     * Reload the app on all connected devices by sending 'r' to Metro CLI stdin
+     * Reload the app on all connected devices via WebSocket message
      */
     async reload() {
         if (!this.process) {
             throw new Error('Expo server is not running');
-        }
-        if (!this.process.stdin) {
-            throw new Error('Cannot send reload command: stdin not available');
         }
         // Check for recent errors in log buffer that might indicate problems
         const recentErrors = this.logBuffer
@@ -386,23 +384,30 @@ export class ExpoManager {
         if (recentErrors.some((msg) => /EADDRINUSE|port.*in use/i.test(msg))) {
             throw new Error('Port conflict detected. Stop other servers or use a different port.');
         }
-        // Record log buffer position before sending command
-        const logPositionBefore = this.logBuffer.length;
-        // Send 'r' to Metro CLI stdin - same as pressing 'r' in terminal
-        this.process.stdin.write('r');
-        // Wait briefly and check for success/error indicators in new logs
-        await new Promise((resolve) => global.setTimeout(resolve, 500));
-        const newLogs = this.logBuffer.slice(logPositionBefore);
-        const errorLogs = newLogs.filter((log) => log.level === 'error');
-        const hasReloadIndicator = newLogs.some((log) => /reload|refresh|Reloading/i.test(log.message));
-        const hasNoAppsConnected = newLogs.some((log) => /No apps connected/i.test(log.message));
-        if (hasNoAppsConnected) {
-            throw new Error('No apps connected. Make sure Expo Go is running and connected.');
-        }
-        if (errorLogs.length > 0 && !hasReloadIndicator) {
-            const errorMessages = errorLogs.map((log) => log.message).join('; ');
-            throw new Error(`Reload may have failed: ${errorMessages}`);
-        }
+        // Send reload via WebSocket /message endpoint
+        const wsUrl = `ws://localhost:${this.port}/message`;
+        return new Promise((resolve, reject) => {
+            const ws = new WebSocket(wsUrl);
+            const timeoutId = global.setTimeout(() => {
+                ws.close();
+                reject(new Error('WebSocket connection timeout'));
+            }, 5000);
+            ws.on('open', () => {
+                // Send reload message in the format expected by Metro/Expo
+                const message = JSON.stringify({ method: 'reload' });
+                ws.send(message);
+                // Give it a moment to broadcast, then close
+                global.setTimeout(() => {
+                    clearTimeout(timeoutId);
+                    ws.close();
+                    resolve();
+                }, 100);
+            });
+            ws.on('error', (error) => {
+                clearTimeout(timeoutId);
+                reject(new Error(`WebSocket error: ${error.message}`));
+            });
+        });
     }
     /**
      * Parse log level from message content
