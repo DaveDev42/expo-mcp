@@ -47,6 +47,7 @@ export interface ExpoLaunchResult {
 }
 export declare class ExpoManager {
     private process;
+    private ptyProcess;
     private port;
     private target;
     private host;
@@ -83,7 +84,7 @@ export declare class ExpoManager {
     getTarget(): ExpoTarget | null;
     getHost(): ExpoHost;
     /**
-     * Reload the app on all connected devices by sending 'r' to Metro CLI stdin
+     * Reload the app on all connected devices by sending 'r' to Metro CLI
      */
     reload(): Promise<void>;
     /**
