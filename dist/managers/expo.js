@@ -1,7 +1,6 @@
-import { execSync } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { setTimeout } from 'timers/promises';
 import { networkInterfaces } from 'os';
-import * as pty from 'node-pty';
 /**
  * Get the local network IP address for LAN connections
  */
@@ -19,7 +18,6 @@ function getLanIP() {
 }
 export class ExpoManager {
     process = null;
-    ptyProcess = null;
     port = 8081;
     target = null;
     host = 'lan';
@@ -253,21 +251,19 @@ export class ExpoManager {
         if (options.scheme) {
             args.push('--scheme', options.scheme);
         }
-        // Launch Expo dev server with PTY for interactive terminal support
-        const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
-        const shellArgs = process.platform === 'win32' ? ['-Command', `npx ${args.join(' ')}`] : ['-c', `npx ${args.join(' ')}`];
-        this.ptyProcess = pty.spawn(shell, shellArgs, {
-            name: 'xterm-color',
-            cols: 120,
-            rows: 30,
+        // Launch Expo dev server with detached process group for proper cleanup
+        const env = { ...process.env };
+        this.process = spawn('npx', args, {
             cwd: this.appDir,
-            env: process.env,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env,
+            detached: true,
+            shell: process.platform === 'win32', // Only use shell on Windows
         });
         // Capture output for debugging and log buffer
-        this.ptyProcess.onData((data) => {
-            // Strip ANSI escape codes for cleaner logs
-            const cleanText = data.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
-            const lines = cleanText.split('\n').filter((line) => line.trim());
+        this.process.stdout?.on('data', (data) => {
+            const text = data.toString();
+            const lines = text.split('\n').filter(Boolean);
             for (const line of lines) {
                 this.logBuffer.push({
                     timestamp: Date.now(),
@@ -279,11 +275,27 @@ export class ExpoManager {
                     this.logBuffer.shift();
                 }
             }
-            console.error(`[Expo] ${cleanText}`);
+            console.error(`[Expo stdout] ${text}`);
         });
-        this.ptyProcess.onExit(({ exitCode }) => {
-            console.error(`[Expo] Process exited with code ${exitCode}`);
-            this.ptyProcess = null;
+        this.process.stderr?.on('data', (data) => {
+            const text = data.toString();
+            const lines = text.split('\n').filter(Boolean);
+            for (const line of lines) {
+                this.logBuffer.push({
+                    timestamp: Date.now(),
+                    source: 'stderr',
+                    level: this.parseLogLevel(line, 'error'),
+                    message: line,
+                });
+                if (this.logBuffer.length > this.maxLogLines) {
+                    this.logBuffer.shift();
+                }
+            }
+            console.error(`[Expo stderr] ${text}`);
+        });
+        this.process.on('exit', (code) => {
+            console.error(`[Expo] Process exited with code ${code}`);
+            this.process = null;
         });
         if (waitForReady) {
             await this.waitForServer(port, timeoutSecs);
@@ -295,56 +307,58 @@ export class ExpoManager {
         return { url, exp_url, port, target, host: effectiveHost };
     }
     async stop() {
-        if (!this.ptyProcess) {
+        if (!this.process || !this.process.pid) {
             return;
         }
         return new Promise((resolve) => {
-            const ptyProc = this.ptyProcess;
-            const pid = ptyProc.pid;
+            const proc = this.process;
+            const pid = proc.pid;
             const cleanup = () => {
-                this.ptyProcess = null;
                 this.process = null;
                 this.target = null;
                 this.host = 'lan';
                 resolve();
             };
-            // Kill the PTY process
-            try {
-                ptyProc.kill();
-            }
-            catch (e) {
-                console.error('[Expo] Error killing PTY process:', e);
-            }
-            // Also try to kill the process group on Unix
-            if (process.platform !== 'win32' && pid) {
+            proc.on('exit', cleanup);
+            // Kill process group on Unix, taskkill on Windows
+            if (process.platform !== 'win32') {
                 try {
+                    // Negative PID kills the entire process group
                     process.kill(-pid, 'SIGTERM');
                 }
                 catch (e) {
-                    // Process may already be dead
+                    proc.kill('SIGTERM');
                 }
+            }
+            else {
+                spawn('taskkill', ['/PID', pid.toString(), '/T', '/F'], {
+                    stdio: 'ignore',
+                    shell: true,
+                });
+                proc.kill('SIGTERM');
             }
             // Force kill after 5 seconds if still running
             setTimeout(5000).then(() => {
-                if (this.ptyProcess === ptyProc) {
-                    console.error('[Expo] Force killing process');
-                    try {
-                        if (pid) {
-                            process.kill(pid, 'SIGKILL');
+                if (this.process === proc) {
+                    console.error('[Expo] Force killing process group');
+                    if (process.platform !== 'win32') {
+                        try {
+                            process.kill(-pid, 'SIGKILL');
+                        }
+                        catch (e) {
+                            proc.kill('SIGKILL');
                         }
                     }
-                    catch (e) {
-                        // Process may already be dead
+                    else {
+                        proc.kill('SIGKILL');
                     }
                     cleanup();
                 }
             });
-            // Give it a moment then cleanup
-            setTimeout(500).then(cleanup);
         });
     }
     getStatus() {
-        return this.ptyProcess ? 'running' : 'stopped';
+        return this.process ? 'running' : 'stopped';
     }
     getPort() {
         return this.port;
@@ -356,11 +370,14 @@ export class ExpoManager {
         return this.host;
     }
     /**
-     * Reload the app on all connected devices by sending 'r' to Metro CLI
+     * Reload the app on all connected devices by sending 'r' to Metro CLI stdin
      */
     async reload() {
-        if (!this.ptyProcess) {
+        if (!this.process) {
             throw new Error('Expo server is not running');
+        }
+        if (!this.process.stdin) {
+            throw new Error('Cannot send reload command: stdin not available');
         }
         // Check for recent errors in log buffer that might indicate problems
         const recentErrors = this.logBuffer
@@ -371,8 +388,8 @@ export class ExpoManager {
         }
         // Record log buffer position before sending command
         const logPositionBefore = this.logBuffer.length;
-        // Send 'r' to Metro CLI via PTY - same as pressing 'r' in terminal
-        this.ptyProcess.write('r');
+        // Send 'r' to Metro CLI stdin - same as pressing 'r' in terminal
+        this.process.stdin.write('r');
         // Wait briefly and check for success/error indicators in new logs
         await new Promise((resolve) => global.setTimeout(resolve, 500));
         const newLogs = this.logBuffer.slice(logPositionBefore);
