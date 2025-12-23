@@ -83,7 +83,7 @@ export declare class ExpoManager {
     getTarget(): ExpoTarget | null;
     getHost(): ExpoHost;
     /**
-     * Reload the app on all connected devices
+     * Reload the app on all connected devices by sending 'r' to Metro CLI stdin
      */
     reload(): Promise<void>;
     /**
