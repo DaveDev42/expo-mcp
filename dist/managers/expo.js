@@ -2,6 +2,34 @@ import { spawn, execSync } from 'child_process';
 import { setTimeout } from 'timers/promises';
 import { networkInterfaces } from 'os';
 import { WebSocket } from 'ws';
+import * as net from 'net';
+/**
+ * Check if a port is available on localhost
+ */
+function isPortAvailable(port) {
+    return new Promise((resolve) => {
+        const server = net.createServer();
+        server.once('error', () => resolve(false));
+        server.once('listening', () => {
+            server.close();
+            resolve(true);
+        });
+        // Listen on all interfaces to catch both IPv4 and IPv6 usage
+        server.listen(port);
+    });
+}
+/**
+ * Find an available port starting from the given port
+ */
+async function findAvailablePort(startPort, maxAttempts = 10) {
+    for (let i = 0; i < maxAttempts; i++) {
+        const port = startPort + i;
+        if (await isPortAvailable(port)) {
+            return port;
+        }
+    }
+    throw new Error(`No available port found in range ${startPort}-${startPort + maxAttempts - 1}`);
+}
 /**
  * Get the local network IP address for LAN connections
  */
@@ -177,12 +205,17 @@ export class ExpoManager {
         }
     }
     async launch(options = {}) {
-        const port = options.port ?? 8081;
+        const requestedPort = options.port ?? 8081;
         const target = options.target ?? null;
         const waitForReady = options.wait_for_ready ?? true;
         const timeoutSecs = options.timeout_secs ?? 120;
         if (this.process) {
             throw new Error('Expo server is already running. Stop it first.');
+        }
+        // Find an available port (auto-increment if requested port is in use)
+        const port = await findAvailablePort(requestedPort);
+        if (port !== requestedPort) {
+            console.error(`[Expo] Port ${requestedPort} in use, using port ${port} instead`);
         }
         // Pre-flight check for Android storage
         if (target === 'android-emulator') {
@@ -253,7 +286,8 @@ export class ExpoManager {
             args.push('--scheme', options.scheme);
         }
         // Launch Expo dev server with detached process group for proper cleanup
-        const env = { ...process.env };
+        // CI=1 disables interactive prompts and skips optional inputs
+        const env = { ...process.env, CI: '1' };
         this.process = spawn('npx', args, {
             cwd: this.appDir,
             stdio: ['pipe', 'pipe', 'pipe'],
