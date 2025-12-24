@@ -4,9 +4,9 @@ MCP server for Expo/React Native app automation with Maestro integration.
 
 ## Features
 
-- **Expo Dev Server Management**: Start/stop Expo development server with automatic device launch
-- **Automatic Device Management**: Uses Expo CLI's built-in simulator/emulator management
-- **Maestro Integration**: Full Maestro MCP tools for UI automation
+- **Session-Based Architecture**: Launch Expo and device binds automatically - no manual device ID management
+- **Expo Dev Server Management**: Start/stop/reload Expo development server
+- **Maestro Integration**: Full UI automation tools (tap, input, screenshot, etc.)
 
 ## Installation
 
@@ -36,35 +36,24 @@ Add to your `.mcp.json`:
 
 ## Quick Start
 
-1. **Check status**:
-   ```
-   app_status
-   ```
+```
+# 1. Start session (launches Expo + binds device automatically)
+launch_expo({ target: "ios-simulator" })
 
-2. **Start Expo with iOS Simulator**:
-   ```
-   launch_expo({ platform: "ios" })
-   ```
-   This automatically:
-   - Boots iOS Simulator (if not running)
-   - Installs Expo Go (if needed)
-   - Opens your app in Expo Go
+# 2. Use Maestro tools directly (no device_id needed!)
+take_screenshot()
+tap_on({ text: "Login" })
+input_text({ text: "hello@example.com" })
 
-3. **Or start with Android Emulator**:
-   ```
-   launch_expo({ platform: "android" })
-   ```
+# 3. Reload app after code changes
+reload_expo()
 
-4. **Use Maestro for UI testing**:
-   ```
-   maestro_take_screenshot({ path: "/tmp/screenshot.png" })
-   maestro_tap_on({ text: "Login" })
-   ```
+# 4. Check logs if needed
+get_logs({ level: "error" })
 
-5. **Stop when done**:
-   ```
-   stop_expo
-   ```
+# 5. Stop session when done
+stop_expo()
+```
 
 ## Tools
 
@@ -72,21 +61,37 @@ Add to your `.mcp.json`:
 
 | Tool | Description |
 |------|-------------|
-| `app_status` | Get status of Expo server |
-| `launch_expo` | Start Expo dev server (with optional --ios or --android) |
-| `stop_expo` | Stop Expo dev server |
+| `app_status` | Get session status (server info, device_id) |
+| `launch_expo` | Start Expo server and establish session with device |
+| `stop_expo` | Stop Expo server and end session |
+| `reload_expo` | Hot reload the app on connected device |
+| `get_logs` | Get Metro bundler logs (filterable by level) |
 
-### Maestro Tools (Proxied)
+#### launch_expo Options
 
-All Maestro MCP tools are available with `maestro_` prefix:
+| Option | Type | Description |
+|--------|------|-------------|
+| `target` | `ios-simulator` \| `android-emulator` \| `web-browser` | Device to launch |
+| `host` | `lan` \| `tunnel` \| `localhost` | Connection mode |
+| `port` | number | Server port (default: 8081, auto-increments if busy) |
+| `clear` | boolean | Clear Metro bundler cache |
+| `dev` | boolean | Development mode (default: true) |
+
+### Maestro Tools
+
+All Maestro tools work automatically once a session is active:
 
 | Tool | Description |
 |------|-------------|
-| `maestro_tap_on` | Tap on UI element |
-| `maestro_input_text` | Input text |
-| `maestro_take_screenshot` | Take screenshot |
-| `maestro_inspect_view_hierarchy` | Get UI hierarchy |
-| `maestro_run_flow` | Run Maestro flow |
+| `tap_on` | Tap on UI element by text, id, or point |
+| `input_text` | Type text into focused field |
+| `take_screenshot` | Capture screen (auto-resized for LLM) |
+| `inspect_view_hierarchy` | Get UI element tree |
+| `launch_app` | Launch app by bundle ID |
+| `back` | Press back button |
+| `run_flow` | Run Maestro YAML flow |
+
+> **Note**: Maestro tools require an active session. Call `launch_expo` first.
 
 ## Environment Variables
 
@@ -94,17 +99,17 @@ All Maestro MCP tools are available with `maestro_` prefix:
 |----------|-------------|---------|
 | `EXPO_APP_DIR` | Path to Expo app directory | Current working directory |
 | `MAESTRO_CLI_PATH` | Path to Maestro CLI | `~/.maestro/bin/maestro` |
+| `ESSENTIAL_TOOLS` | Comma-separated list of tools to expose | All tools |
+| `LOG_BUFFER_SIZE` | Max log lines to keep in memory | 400 |
 
 ## How It Works
 
-This MCP server leverages Expo CLI's built-in device management. When you call `launch_expo` with a `platform` parameter:
+1. **Session Creation**: `launch_expo` starts Expo dev server and waits for device connection
+2. **Device Binding**: Once device connects, its ID is stored in the session
+3. **Automatic Injection**: All Maestro tools automatically use the session's device ID
+4. **Session End**: `stop_expo` cleans up everything
 
-```
-npx expo start --ios   # Boots simulator, installs Expo Go, opens app
-npx expo start --android   # Boots emulator, installs Expo Go, opens app
-```
-
-This is much simpler and more reliable than managing devices manually.
+This eliminates the need for manual `device_id` management.
 
 ## Requirements
 
