@@ -11,22 +11,6 @@ export declare const lifecycleToolSchemas: {
         description: string;
         inputSchema: z.ZodObject<{}, "strip", z.ZodTypeAny, {}, {}>;
     };
-    list_devices: {
-        name: string;
-        description: string;
-        inputSchema: z.ZodObject<{}, "strip", z.ZodTypeAny, {}, {}>;
-    };
-    switch_device: {
-        name: string;
-        description: string;
-        inputSchema: z.ZodObject<{
-            device_id: z.ZodString;
-        }, "strip", z.ZodTypeAny, {
-            device_id: string;
-        }, {
-            device_id: string;
-        }>;
-    };
     launch_expo: {
         name: string;
         description: string;
@@ -105,25 +89,6 @@ export declare function createLifecycleHandlers(managers: LifecycleTools): {
             type: "text";
             text: string;
         }[];
-    }>;
-    list_devices(): Promise<{
-        content: {
-            type: "text";
-            text: string;
-        }[];
-    }>;
-    switch_device(args: z.infer<typeof lifecycleToolSchemas.switch_device.inputSchema>): Promise<{
-        content: {
-            type: "text";
-            text: string;
-        }[];
-        isError: boolean;
-    } | {
-        content: {
-            type: "text";
-            text: string;
-        }[];
-        isError?: undefined;
     }>;
     launch_expo(args: z.infer<typeof lifecycleToolSchemas.launch_expo.inputSchema>): Promise<{
         content: {

@@ -1,8 +1,10 @@
 import { MaestroManager } from '../managers/maestro.js';
+import { ExpoManager } from '../managers/expo.js';
 import { processScreenshotResponse } from '../utils/image.js';
 
 export interface MaestroToolsProxy {
   maestroManager: MaestroManager;
+  expoManager: ExpoManager;
 }
 
 // Tools that return images and need resize processing
@@ -35,43 +37,19 @@ export function createMaestroToolsProxy(managers: MaestroToolsProxy) {
       return managers.maestroManager.getTools();
     },
 
-    /**
-     * Get current target device ID
-     */
-    getTargetDeviceId(): string | null {
-      return managers.maestroManager.getTargetDeviceId();
-    },
-
-    /**
-     * Switch to a different device
-     */
-    async switchDevice(deviceId: string): Promise<void> {
-      await managers.maestroManager.switchDevice(deviceId);
-    },
-
-    /**
-     * List all available devices
-     */
-    async listDevices() {
-      return managers.maestroManager.listDevices();
-    },
-
     async callTool(name: string, args: any) {
-      // Auto-inject device_id if not provided and tool requires it
       let enhancedArgs = { ...args };
 
-      if (DEVICE_REQUIRED_TOOLS.includes(name) && !args.device_id) {
-        const targetDeviceId = managers.maestroManager.getTargetDeviceId();
-
-        if (targetDeviceId) {
-          enhancedArgs = { ...args, device_id: targetDeviceId };
-        } else {
-          // Try to get connected device and set as target
-          const device = await managers.maestroManager.getConnectedDevice();
-          if (device) {
-            enhancedArgs = { ...args, device_id: device.device_id };
-          }
+      // Check for active session and inject device_id for device-required tools
+      if (DEVICE_REQUIRED_TOOLS.includes(name)) {
+        if (!managers.expoManager.hasActiveSession()) {
+          throw new Error(
+            'No active session. Call launch_expo first to establish a session.'
+          );
         }
+
+        const deviceId = managers.expoManager.getDeviceId();
+        enhancedArgs = { ...args, device_id: deviceId };
       }
 
       const result = await managers.maestroManager.callTool(name, enhancedArgs);

@@ -53,6 +53,7 @@ export declare class ExpoManager {
     private appDir;
     private logBuffer;
     private maxLogLines;
+    private deviceId;
     private static readonly EXPO_GO_MIN_STORAGE_MB;
     private static readonly LOG_LEVEL_PRIORITY;
     constructor(appDir?: string);
@@ -82,6 +83,9 @@ export declare class ExpoManager {
     getPort(): number;
     getTarget(): ExpoTarget | null;
     getHost(): ExpoHost;
+    getDeviceId(): string | null;
+    setDeviceId(deviceId: string): void;
+    hasActiveSession(): boolean;
     /**
      * Reload the app on all connected devices via WebSocket message
      */

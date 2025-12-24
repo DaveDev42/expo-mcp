@@ -53,6 +53,7 @@ export class ExpoManager {
     appDir;
     logBuffer = [];
     maxLogLines;
+    deviceId = null;
     static EXPO_GO_MIN_STORAGE_MB = 300; // Expo Go APK is ~186MB, need extra for extraction
     static LOG_LEVEL_PRIORITY = {
         log: 0,
@@ -352,6 +353,7 @@ export class ExpoManager {
                 this.process = null;
                 this.target = null;
                 this.host = 'lan';
+                this.deviceId = null;
                 resolve();
             };
             proc.on('exit', cleanup);
@@ -403,6 +405,15 @@ export class ExpoManager {
     }
     getHost() {
         return this.host;
+    }
+    getDeviceId() {
+        return this.deviceId;
+    }
+    setDeviceId(deviceId) {
+        this.deviceId = deviceId;
+    }
+    hasActiveSession() {
+        return this.process !== null && this.deviceId !== null;
     }
     /**
      * Reload the app on all connected devices via WebSocket message

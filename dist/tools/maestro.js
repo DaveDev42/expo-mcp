@@ -27,39 +27,15 @@ export function createMaestroToolsProxy(managers) {
             }
             return managers.maestroManager.getTools();
         },
-        /**
-         * Get current target device ID
-         */
-        getTargetDeviceId() {
-            return managers.maestroManager.getTargetDeviceId();
-        },
-        /**
-         * Switch to a different device
-         */
-        async switchDevice(deviceId) {
-            await managers.maestroManager.switchDevice(deviceId);
-        },
-        /**
-         * List all available devices
-         */
-        async listDevices() {
-            return managers.maestroManager.listDevices();
-        },
         async callTool(name, args) {
-            // Auto-inject device_id if not provided and tool requires it
             let enhancedArgs = { ...args };
-            if (DEVICE_REQUIRED_TOOLS.includes(name) && !args.device_id) {
-                const targetDeviceId = managers.maestroManager.getTargetDeviceId();
-                if (targetDeviceId) {
-                    enhancedArgs = { ...args, device_id: targetDeviceId };
+            // Check for active session and inject device_id for device-required tools
+            if (DEVICE_REQUIRED_TOOLS.includes(name)) {
+                if (!managers.expoManager.hasActiveSession()) {
+                    throw new Error('No active session. Call launch_expo first to establish a session.');
                 }
-                else {
-                    // Try to get connected device and set as target
-                    const device = await managers.maestroManager.getConnectedDevice();
-                    if (device) {
-                        enhancedArgs = { ...args, device_id: device.device_id };
-                    }
-                }
+                const deviceId = managers.expoManager.getDeviceId();
+                enhancedArgs = { ...args, device_id: deviceId };
             }
             const result = await managers.maestroManager.callTool(name, enhancedArgs);
             // Process screenshot responses to resize images if needed

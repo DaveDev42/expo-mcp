@@ -114,6 +114,7 @@ export class ExpoManager {
   private appDir: string;
   private logBuffer: LogEntry[] = [];
   private maxLogLines: number;
+  private deviceId: string | null = null;
   private static readonly EXPO_GO_MIN_STORAGE_MB = 300; // Expo Go APK is ~186MB, need extra for extraction
   private static readonly LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
     log: 0,
@@ -436,6 +437,7 @@ export class ExpoManager {
         this.process = null;
         this.target = null;
         this.host = 'lan';
+        this.deviceId = null;
         resolve();
       };
 
@@ -490,6 +492,18 @@ export class ExpoManager {
 
   getHost(): ExpoHost {
     return this.host;
+  }
+
+  getDeviceId(): string | null {
+    return this.deviceId;
+  }
+
+  setDeviceId(deviceId: string): void {
+    this.deviceId = deviceId;
+  }
+
+  hasActiveSession(): boolean {
+    return this.process !== null && this.deviceId !== null;
   }
 
   /**

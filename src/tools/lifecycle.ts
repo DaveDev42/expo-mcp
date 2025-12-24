@@ -11,20 +11,8 @@ export interface LifecycleTools {
 export const lifecycleToolSchemas = {
   app_status: {
     name: 'app_status',
-    description: 'Get Expo server status and current device info',
+    description: 'Get Expo server status and current session info',
     inputSchema: z.object({}),
-  },
-  list_devices: {
-    name: 'list_devices',
-    description: 'List all available devices (iOS Simulators, Android Emulators) and show current target device',
-    inputSchema: z.object({}),
-  },
-  switch_device: {
-    name: 'switch_device',
-    description: 'Switch to a different device for Maestro automation',
-    inputSchema: z.object({
-      device_id: z.string().describe('Device ID to switch to (get IDs from list_devices)'),
-    }),
   },
   launch_expo: {
     name: 'launch_expo',
@@ -92,14 +80,11 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
       const port = managers.expoManager.getPort();
       const target = managers.expoManager.getTarget();
       const host = managers.expoManager.getHost();
-
-      // Get connected device info if server is running
-      let device: { device_id: string; device_name: string; platform: string } | null = null;
-      if (status === 'running') {
-        device = await managers.maestroManager.getConnectedDevice();
-      }
+      const deviceId = managers.expoManager.getDeviceId();
+      const hasSession = managers.expoManager.hasActiveSession();
 
       const result = {
+        session_active: hasSession,
         expo_server: {
           status,
           port,
@@ -108,14 +93,7 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
           url: status === 'running' ? `http://localhost:${port}` : null,
           exp_url: status === 'running' ? `exp://localhost:${port}` : null,
         },
-        device: device
-          ? {
-              device_id: device.device_id,
-              device_name: device.device_name,
-              platform: device.platform,
-            }
-          : null,
-        target_device_id: managers.maestroManager.getTargetDeviceId(),
+        device_id: deviceId,
       };
 
       return {
@@ -123,64 +101,6 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
           {
             type: 'text' as const,
             text: JSON.stringify(result, null, 2),
-          },
-        ],
-      };
-    },
-
-    async list_devices() {
-      const devices = await managers.maestroManager.listDevices();
-      const targetDeviceId = managers.maestroManager.getTargetDeviceId();
-
-      const result = {
-        devices,
-        target_device_id: targetDeviceId,
-        hint: 'Use switch_device tool to change the target device',
-      };
-
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(result, null, 2),
-          },
-        ],
-      };
-    },
-
-    async switch_device(args: z.infer<typeof lifecycleToolSchemas.switch_device.inputSchema>) {
-      const { device_id } = args;
-
-      // Validate device exists
-      const devices = await managers.maestroManager.listDevices();
-      const deviceExists = devices.some((d) => d.device_id === device_id);
-
-      if (!deviceExists) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify({
-                error: `Device not found: ${device_id}`,
-                available_devices: devices.map((d) => ({ device_id: d.device_id, name: d.name })),
-              }, null, 2),
-            },
-          ],
-          isError: true,
-        };
-      }
-
-      await managers.maestroManager.switchDevice(device_id);
-
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({
-              success: true,
-              target_device_id: device_id,
-              message: `Switched to device: ${device_id}`,
-            }, null, 2),
           },
         ],
       };
@@ -194,6 +114,19 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
       if (result.target) {
         // Poll for device connection (max 30 seconds, check every 2 seconds)
         device = await managers.maestroManager.waitForDeviceConnection(30000, 2000);
+
+        if (!device) {
+          // Stop Expo server since we can't establish a valid session
+          await managers.expoManager.stop();
+          throw new Error(
+            `Failed to establish session: No device detected after launching ${result.target}. ` +
+            `Please ensure the simulator/emulator is running and try again.`
+          );
+        }
+
+        // Store device_id in ExpoManager for session tracking
+        managers.expoManager.setDeviceId(device.device_id);
+        managers.maestroManager.setTargetDeviceId(device.device_id);
       }
 
       // Generate appropriate message based on target and host

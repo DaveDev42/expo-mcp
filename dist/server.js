@@ -37,6 +37,7 @@ export class McpServer {
         });
         this.maestroProxy = createMaestroToolsProxy({
             maestroManager: this.maestroManager,
+            expoManager: this.expoManager,
         });
         this.setupHandlers();
     }
