@@ -34,7 +34,24 @@ export function createMaestroToolsProxy(managers: MaestroToolsProxy) {
           return [];
         }
       }
-      return managers.maestroManager.getTools();
+
+      const tools = managers.maestroManager.getTools();
+
+      // Remove device_id from schemas - it's auto-injected from session
+      return tools.map((tool) => {
+        if (DEVICE_REQUIRED_TOOLS.includes(tool.name)) {
+          const schema = { ...tool.inputSchema };
+          if (schema.properties) {
+            const { device_id, ...restProperties } = schema.properties;
+            schema.properties = restProperties;
+          }
+          if (schema.required && Array.isArray(schema.required)) {
+            schema.required = schema.required.filter((r: string) => r !== 'device_id');
+          }
+          return { ...tool, inputSchema: schema };
+        }
+        return tool;
+      });
     },
 
     async callTool(name: string, args: any) {
