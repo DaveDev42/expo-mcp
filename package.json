@@ -11,8 +11,8 @@
     "dist"
   ],
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/index.js --external:@modelcontextprotocol/* --external:sharp --external:ws --external:zod --banner:js='#!/usr/bin/env node'",
-    "dev": "esbuild src/index.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/index.js --external:@modelcontextprotocol/* --external:sharp --external:ws --external:zod --banner:js='#!/usr/bin/env node' --watch",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/index.js --external:@modelcontextprotocol/* --external:sharp --external:ws --external:zod",
+    "dev": "esbuild src/index.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/index.js --external:@modelcontextprotocol/* --external:sharp --external:ws --external:zod --watch",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
