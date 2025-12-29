@@ -7,13 +7,12 @@
     "expo-mcp": "./dist/index.js"
   },
   "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc && chmod +x dist/index.js",
-    "dev": "tsc --watch",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/index.js --external:@modelcontextprotocol/* --external:sharp --external:ws --external:zod --banner:js='#!/usr/bin/env node'",
+    "dev": "esbuild src/index.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/index.js --external:@modelcontextprotocol/* --external:sharp --external:ws --external:zod --banner:js='#!/usr/bin/env node' --watch",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
@@ -42,6 +41,7 @@
     "@types/node": "^22.19.1",
     "@types/sharp": "^0.32.0",
     "@types/ws": "^8.18.1",
+    "esbuild": "^0.25.12",
     "typescript": "^5.9.3"
   },
   "engines": {
