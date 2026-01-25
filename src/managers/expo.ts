@@ -331,23 +331,22 @@ export class ExpoManager {
     }
     this.host = effectiveHost;
 
-    // Host → CLI flags
-    if (effectiveHost === 'tunnel') {
-      args.push('--tunnel');
-    } else if (effectiveHost === 'lan') {
-      args.push('--lan');
-    } else if (effectiveHost === 'localhost') {
-      args.push('--localhost');
-    }
-
-    // Other options
     // In CI/non-interactive environments, enable offline mode by default
     // This skips Expo server authentication (manifest signing) which requires EXPO_TOKEN
     // Users can override by explicitly setting offline: false
     // Note: Offline mode only affects Expo CLI communication, not app network features
     const shouldUseOffline = options.offline ?? (process.env.CI === '1');
+
+    // Host/offline → CLI flags (mutually exclusive in Expo CLI)
+    // --offline takes precedence when enabled
     if (shouldUseOffline) {
       args.push('--offline');
+    } else if (effectiveHost === 'tunnel') {
+      args.push('--tunnel');
+    } else if (effectiveHost === 'lan') {
+      args.push('--lan');
+    } else if (effectiveHost === 'localhost') {
+      args.push('--localhost');
     }
     if (options.clear) {
       args.push('--clear');

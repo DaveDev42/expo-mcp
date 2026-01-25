@@ -226,16 +226,15 @@ var ExpoManager = class _ExpoManager {
       effectiveHost = "lan";
     }
     this.host = effectiveHost;
-    if (effectiveHost === "tunnel") {
+    const shouldUseOffline = options.offline ?? process.env.CI === "1";
+    if (shouldUseOffline) {
+      args.push("--offline");
+    } else if (effectiveHost === "tunnel") {
       args.push("--tunnel");
     } else if (effectiveHost === "lan") {
       args.push("--lan");
     } else if (effectiveHost === "localhost") {
       args.push("--localhost");
-    }
-    const shouldUseOffline = options.offline ?? process.env.CI === "1";
-    if (shouldUseOffline) {
-      args.push("--offline");
     }
     if (options.clear) {
       args.push("--clear");
