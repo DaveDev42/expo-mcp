@@ -226,16 +226,15 @@ var ExpoManager = class _ExpoManager {
       effectiveHost = "lan";
     }
     this.host = effectiveHost;
-    if (effectiveHost === "tunnel") {
+    const shouldUseOffline = options.offline ?? process.env.CI === "1";
+    if (shouldUseOffline) {
+      args.push("--offline");
+    } else if (effectiveHost === "tunnel") {
       args.push("--tunnel");
     } else if (effectiveHost === "lan") {
       args.push("--lan");
     } else if (effectiveHost === "localhost") {
       args.push("--localhost");
-    }
-    const shouldUseOffline = options.offline ?? process.env.CI === "1";
-    if (shouldUseOffline) {
-      args.push("--offline");
     }
     if (options.clear) {
       args.push("--clear");
@@ -762,8 +761,8 @@ var lifecycleToolSchemas = {
     name: "launch_expo",
     description: "Launch Expo dev server",
     inputSchema: z.object({
-      // Target device
-      target: z.enum(["ios-simulator", "android-emulator", "web-browser"]).optional().describe("Target platform to auto-launch: ios-simulator, android-emulator, or web-browser"),
+      // Target device (required)
+      target: z.enum(["ios-simulator", "android-emulator", "web-browser"]).describe("Target platform to launch: ios-simulator, android-emulator, or web-browser"),
       // Session reconnection
       device_id: z.string().optional().describe("Device ID for session reconnection. Use the device_id returned from a previous launch_expo call."),
       // Connection mode
