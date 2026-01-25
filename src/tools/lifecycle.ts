@@ -18,11 +18,10 @@ export const lifecycleToolSchemas = {
     name: 'launch_expo',
     description: 'Launch Expo dev server',
     inputSchema: z.object({
-      // Target device
+      // Target device (required)
       target: z
         .enum(['ios-simulator', 'android-emulator', 'web-browser'])
-        .optional()
-        .describe('Target platform to auto-launch: ios-simulator, android-emulator, or web-browser'),
+        .describe('Target platform to launch: ios-simulator, android-emulator, or web-browser'),
 
       // Session reconnection
       device_id: z

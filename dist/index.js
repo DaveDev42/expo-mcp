@@ -761,8 +761,8 @@ var lifecycleToolSchemas = {
     name: "launch_expo",
     description: "Launch Expo dev server",
     inputSchema: z.object({
-      // Target device
-      target: z.enum(["ios-simulator", "android-emulator", "web-browser"]).optional().describe("Target platform to auto-launch: ios-simulator, android-emulator, or web-browser"),
+      // Target device (required)
+      target: z.enum(["ios-simulator", "android-emulator", "web-browser"]).describe("Target platform to launch: ios-simulator, android-emulator, or web-browser"),
       // Session reconnection
       device_id: z.string().optional().describe("Device ID for session reconnection. Use the device_id returned from a previous launch_expo call."),
       // Connection mode
