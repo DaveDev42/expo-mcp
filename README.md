@@ -101,6 +101,7 @@ All Maestro tools work automatically once a session is active:
 | `MAESTRO_CLI_PATH` | Path to Maestro CLI | `~/.maestro/bin/maestro` |
 | `ESSENTIAL_TOOLS` | Comma-separated list of tools to expose | All tools |
 | `LOG_BUFFER_SIZE` | Max log lines to keep in memory | 400 |
+| `EXPO_TOKEN` | Expo authentication token (optional, only needed if offline mode is disabled) | None |
 
 ## How It Works
 
@@ -110,6 +111,38 @@ All Maestro tools work automatically once a session is active:
 4. **Session End**: `stop_expo` cleans up everything
 
 This eliminates the need for manual `device_id` management.
+
+## Non-Interactive Environments (CI/CD, AI Agents)
+
+This MCP server automatically enables `--offline` mode when running in CI environments (`CI=1`). This allows the app to work without requiring an `EXPO_TOKEN`.
+
+### What Offline Mode Does
+
+- Skips Expo server communication (manifest signing)
+- **Does NOT affect** your app's network features (API calls, fetch, etc.)
+- Tunnel mode (`--tunnel`) is not available in offline mode
+
+### If You Need Expo Account Features
+
+For features requiring Expo authentication, disable offline mode and provide `EXPO_TOKEN`:
+
+```json
+{
+  "mcpServers": {
+    "expo-mcp": {
+      "env": {
+        "EXPO_TOKEN": "your-token-here"
+      }
+    }
+  }
+}
+```
+
+Then call `launch_expo` with `offline: false`:
+
+```javascript
+launch_expo({ target: "ios-simulator", offline: false })
+```
 
 ## Requirements
 
