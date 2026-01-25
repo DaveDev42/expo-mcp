@@ -470,7 +470,7 @@ var MaestroManager = class _MaestroManager {
       return;
     }
     console.error("[Maestro] Starting Maestro MCP process...");
-    const maestroPath = "/Users/dave/.maestro/bin/maestro";
+    const maestroPath = process.env.MAESTRO_CLI_PATH || `${process.env.HOME}/.maestro/bin/maestro`;
     this.process = spawn2(maestroPath, ["mcp"], {
       stdio: ["pipe", "pipe", "pipe"]
     });
