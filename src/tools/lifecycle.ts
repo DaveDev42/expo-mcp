@@ -22,7 +22,13 @@ export const lifecycleToolSchemas = {
       target: z
         .enum(['ios-simulator', 'android-emulator', 'web-browser'])
         .optional()
-        .describe('Target device to auto-launch'),
+        .describe('Target platform to auto-launch: ios-simulator, android-emulator, or web-browser'),
+
+      // Session reconnection
+      device_id: z
+        .string()
+        .optional()
+        .describe('Device ID for session reconnection. Use the device_id returned from a previous launch_expo call.'),
 
       // Connection mode
       host: z
@@ -107,7 +113,43 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
     },
 
     async launch_expo(args: z.infer<typeof lifecycleToolSchemas.launch_expo.inputSchema>) {
-      const result = await managers.expoManager.launch(args);
+      const { device_id: requestedDeviceId, ...launchOptions } = args;
+
+      // If device_id is provided and Expo server is already running, switch to that device
+      if (requestedDeviceId && managers.expoManager.getStatus() === 'running') {
+        managers.expoManager.setDeviceId(requestedDeviceId);
+        managers.maestroManager.setTargetDeviceId(requestedDeviceId);
+
+        const port = managers.expoManager.getPort();
+        const target = managers.expoManager.getTarget();
+        const host = managers.expoManager.getHost();
+
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify(
+                {
+                  status: 'running',
+                  port,
+                  target,
+                  host,
+                  url: `http://localhost:${port}`,
+                  exp_url: `exp://localhost:${port}`,
+                  device_id: requestedDeviceId,
+                  device_name: null,
+                  platform: null,
+                  message: `Session reconnected with device_id: ${requestedDeviceId}`,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      const result = await managers.expoManager.launch(launchOptions);
 
       // Get connected device info after launching (poll until device is connected)
       let device: { device_id: string; device_name: string; platform: string } | null = null;

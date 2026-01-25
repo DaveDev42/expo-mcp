@@ -763,7 +763,9 @@ var lifecycleToolSchemas = {
     description: "Launch Expo dev server",
     inputSchema: z.object({
       // Target device
-      target: z.enum(["ios-simulator", "android-emulator", "web-browser"]).optional().describe("Target device to auto-launch"),
+      target: z.enum(["ios-simulator", "android-emulator", "web-browser"]).optional().describe("Target platform to auto-launch: ios-simulator, android-emulator, or web-browser"),
+      // Session reconnection
+      device_id: z.string().optional().describe("Device ID for session reconnection. Use the device_id returned from a previous launch_expo call."),
       // Connection mode
       host: z.enum(["lan", "tunnel", "localhost"]).optional().describe("Connection mode: lan (physical devices), tunnel (remote), localhost (simulator)"),
       offline: z.boolean().optional().describe("Offline mode"),
@@ -833,7 +835,38 @@ function createLifecycleHandlers(managers) {
       };
     },
     async launch_expo(args) {
-      const result = await managers.expoManager.launch(args);
+      const { device_id: requestedDeviceId, ...launchOptions } = args;
+      if (requestedDeviceId && managers.expoManager.getStatus() === "running") {
+        managers.expoManager.setDeviceId(requestedDeviceId);
+        managers.maestroManager.setTargetDeviceId(requestedDeviceId);
+        const port = managers.expoManager.getPort();
+        const target = managers.expoManager.getTarget();
+        const host = managers.expoManager.getHost();
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  status: "running",
+                  port,
+                  target,
+                  host,
+                  url: `http://localhost:${port}`,
+                  exp_url: `exp://localhost:${port}`,
+                  device_id: requestedDeviceId,
+                  device_name: null,
+                  platform: null,
+                  message: `Session reconnected with device_id: ${requestedDeviceId}`
+                },
+                null,
+                2
+              )
+            }
+          ]
+        };
+      }
+      const result = await managers.expoManager.launch(launchOptions);
       let device = null;
       if (result.target) {
         device = await managers.maestroManager.waitForDeviceConnection(3e4, 2e3);
