@@ -156,18 +156,18 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
         // Poll for device connection (max 30 seconds, check every 2 seconds)
         device = await managers.maestroManager.waitForDeviceConnection(30000, 2000);
 
-        if (!device) {
-          // Stop Expo server since we can't establish a valid session
-          await managers.expoManager.stop();
-          throw new Error(
-            `Failed to establish session: No device detected after launching ${result.target}. ` +
-            `Please ensure the simulator/emulator is running and try again.`
+        if (device) {
+          // Store device_id in ExpoManager for session tracking
+          managers.expoManager.setDeviceId(device.device_id);
+          managers.maestroManager.setTargetDeviceId(device.device_id);
+        } else {
+          // Device detection failed, but keep server running
+          // User can still manually interact with the app
+          console.error(
+            `[Expo] Warning: Could not detect device after launching ${result.target}. ` +
+            `Maestro tools may not be available. Server will continue running.`
           );
         }
-
-        // Store device_id in ExpoManager for session tracking
-        managers.expoManager.setDeviceId(device.device_id);
-        managers.maestroManager.setTargetDeviceId(device.device_id);
       }
 
       // Generate appropriate message based on target and host
@@ -179,7 +179,11 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
             : result.target === 'android-emulator'
               ? 'Android Emulator'
               : 'Web Browser';
-        message = `Expo server started. ${targetName} launching...`;
+        if (device) {
+          message = `Expo server started. ${targetName} connected (${device.device_name}).`;
+        } else {
+          message = `Expo server started. ${targetName} launched but device detection failed. Maestro tools may not be available.`;
+        }
       } else if (result.host === 'tunnel') {
         message = 'Expo server started with tunnel. Scan QR code in terminal or use exp_url in Expo Go.';
       } else if (result.host === 'lan') {

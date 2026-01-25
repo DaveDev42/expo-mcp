@@ -869,19 +869,23 @@ function createLifecycleHandlers(managers) {
       let device = null;
       if (result.target) {
         device = await managers.maestroManager.waitForDeviceConnection(3e4, 2e3);
-        if (!device) {
-          await managers.expoManager.stop();
-          throw new Error(
-            `Failed to establish session: No device detected after launching ${result.target}. Please ensure the simulator/emulator is running and try again.`
+        if (device) {
+          managers.expoManager.setDeviceId(device.device_id);
+          managers.maestroManager.setTargetDeviceId(device.device_id);
+        } else {
+          console.error(
+            `[Expo] Warning: Could not detect device after launching ${result.target}. Maestro tools may not be available. Server will continue running.`
           );
         }
-        managers.expoManager.setDeviceId(device.device_id);
-        managers.maestroManager.setTargetDeviceId(device.device_id);
       }
       let message;
       if (result.target) {
         const targetName = result.target === "ios-simulator" ? "iOS Simulator" : result.target === "android-emulator" ? "Android Emulator" : "Web Browser";
-        message = `Expo server started. ${targetName} launching...`;
+        if (device) {
+          message = `Expo server started. ${targetName} connected (${device.device_name}).`;
+        } else {
+          message = `Expo server started. ${targetName} launched but device detection failed. Maestro tools may not be available.`;
+        }
       } else if (result.host === "tunnel") {
         message = "Expo server started with tunnel. Scan QR code in terminal or use exp_url in Expo Go.";
       } else if (result.host === "lan") {
