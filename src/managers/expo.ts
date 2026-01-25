@@ -341,7 +341,12 @@ export class ExpoManager {
     }
 
     // Other options
-    if (options.offline) {
+    // In CI/non-interactive environments, enable offline mode by default
+    // This skips Expo server authentication (manifest signing) which requires EXPO_TOKEN
+    // Users can override by explicitly setting offline: false
+    // Note: Offline mode only affects Expo CLI communication, not app network features
+    const shouldUseOffline = options.offline ?? (process.env.CI === '1');
+    if (shouldUseOffline) {
       args.push('--offline');
     }
     if (options.clear) {

@@ -233,7 +233,8 @@ var ExpoManager = class _ExpoManager {
     } else if (effectiveHost === "localhost") {
       args.push("--localhost");
     }
-    if (options.offline) {
+    const shouldUseOffline = options.offline ?? process.env.CI === "1";
+    if (shouldUseOffline) {
       args.push("--offline");
     }
     if (options.clear) {
