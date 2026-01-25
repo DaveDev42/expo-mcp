@@ -65,6 +65,7 @@ export class McpServer {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
       const allLifecycleTools: Tool[] = Object.values(lifecycleToolSchemas).map((schema) => {
         const properties: Record<string, any> = {};
+        const required: string[] = [];
 
         if (schema.inputSchema.shape) {
           for (const [key, value] of Object.entries(schema.inputSchema.shape)) {
@@ -73,6 +74,14 @@ export class McpServer {
               type: this.getZodType(zodValue),
               description: zodValue.description || '',
             };
+            // Add enum values if it's an enum type
+            if (zodValue._def?.typeName === 'ZodEnum') {
+              properties[key].enum = zodValue._def.values;
+            }
+            // Check if field is required (not optional)
+            if (!zodValue.isOptional()) {
+              required.push(key);
+            }
           }
         }
 
@@ -82,6 +91,7 @@ export class McpServer {
           inputSchema: {
             type: 'object',
             properties,
+            ...(required.length > 0 && { required }),
           },
         };
       });
@@ -116,7 +126,10 @@ export class McpServer {
         }
 
         try {
-          return await (handler as any)(args || {});
+          // Validate args with zod schema
+          const schema = lifecycleToolSchemas[name as keyof typeof lifecycleToolSchemas];
+          const validatedArgs = schema.inputSchema.parse(args || {});
+          return await (handler as any)(validatedArgs);
         } catch (error: any) {
           return {
             content: [

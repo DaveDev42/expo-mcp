@@ -1162,6 +1162,7 @@ var McpServer = class {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
       const allLifecycleTools = Object.values(lifecycleToolSchemas).map((schema) => {
         const properties = {};
+        const required = [];
         if (schema.inputSchema.shape) {
           for (const [key, value] of Object.entries(schema.inputSchema.shape)) {
             const zodValue = value;
@@ -1169,6 +1170,12 @@ var McpServer = class {
               type: this.getZodType(zodValue),
               description: zodValue.description || ""
             };
+            if (zodValue._def?.typeName === "ZodEnum") {
+              properties[key].enum = zodValue._def.values;
+            }
+            if (!zodValue.isOptional()) {
+              required.push(key);
+            }
           }
         }
         return {
@@ -1176,7 +1183,8 @@ var McpServer = class {
           description: schema.description,
           inputSchema: {
             type: "object",
-            properties
+            properties,
+            ...required.length > 0 && { required }
           }
         };
       });
@@ -1199,7 +1207,9 @@ var McpServer = class {
           throw new Error(`Handler not implemented for tool: ${name}`);
         }
         try {
-          return await handler(args || {});
+          const schema = lifecycleToolSchemas[name];
+          const validatedArgs = schema.inputSchema.parse(args || {});
+          return await handler(validatedArgs);
         } catch (error) {
           return {
             content: [
