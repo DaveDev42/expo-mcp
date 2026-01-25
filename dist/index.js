@@ -767,19 +767,19 @@ var lifecycleToolSchemas = {
       device_id: z.string().optional().describe("Device ID for session reconnection. Use the device_id returned from a previous launch_expo call."),
       // Connection mode
       host: z.enum(["lan", "tunnel", "localhost"]).optional().describe("Connection mode: lan (physical devices), tunnel (remote), localhost (simulator)"),
-      offline: z.boolean().optional().describe("Offline mode"),
+      offline: z.coerce.boolean().optional().describe("Offline mode"),
       // Server settings
-      port: z.number().optional().describe("Server port (default: 8081)"),
-      clear: z.boolean().optional().describe("Clear bundler cache"),
+      port: z.coerce.number().optional().describe("Server port (default: 8081)"),
+      clear: z.coerce.boolean().optional().describe("Clear bundler cache"),
       // Build options
-      dev: z.boolean().optional().describe("Development mode (default: true)"),
-      minify: z.boolean().optional().describe("Minify JavaScript"),
-      max_workers: z.number().optional().describe("Max Metro workers"),
+      dev: z.coerce.boolean().optional().describe("Development mode (default: true)"),
+      minify: z.coerce.boolean().optional().describe("Minify JavaScript"),
+      max_workers: z.coerce.number().optional().describe("Max Metro workers"),
       // Other
       scheme: z.string().optional().describe("Custom URI scheme"),
       // expo-mcp specific
-      wait_for_ready: z.boolean().optional().describe("Wait for server ready"),
-      timeout_secs: z.number().optional().describe("Timeout in seconds")
+      wait_for_ready: z.coerce.boolean().optional().describe("Wait for server ready"),
+      timeout_secs: z.coerce.number().optional().describe("Timeout in seconds")
     })
   },
   stop_expo: {
@@ -796,8 +796,8 @@ var lifecycleToolSchemas = {
     name: "get_logs",
     description: "Get Metro bundler logs and console output from the running Expo app",
     inputSchema: z.object({
-      limit: z.number().optional().describe("Maximum number of log lines to return (default: all)"),
-      clear: z.boolean().optional().describe("Clear the log buffer after reading (default: false)"),
+      limit: z.coerce.number().optional().describe("Maximum number of log lines to return (default: all)"),
+      clear: z.coerce.boolean().optional().describe("Clear the log buffer after reading (default: false)"),
       level: z.enum(["log", "info", "warn", "error"]).optional().describe("Filter by minimum log level (log < info < warn < error)"),
       source: z.enum(["stdout", "stderr"]).optional().describe("Filter by output source")
     })
