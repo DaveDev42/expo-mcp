@@ -23,6 +23,20 @@ const DEVICE_REQUIRED_TOOLS = [
   'inspect_view_hierarchy',
 ];
 
+// Fallback tool definitions when Maestro is not yet initialized
+// These ensure tools are always listed in the MCP tools list
+const FALLBACK_MAESTRO_TOOLS = [
+  { name: 'take_screenshot', description: 'Take a screenshot of the device screen', inputSchema: { type: 'object', properties: {} } },
+  { name: 'tap_on', description: 'Tap on a UI element by text, id, or coordinates', inputSchema: { type: 'object', properties: { text: { type: 'string', description: 'Text of element to tap' }, id: { type: 'string', description: 'Accessibility ID of element to tap' }, point: { type: 'string', description: 'Coordinates to tap (e.g. "50%,50%")' } } } },
+  { name: 'input_text', description: 'Type text into the currently focused field', inputSchema: { type: 'object', properties: { text: { type: 'string', description: 'Text to input' } }, required: ['text'] } },
+  { name: 'back', description: 'Press the back button', inputSchema: { type: 'object', properties: {} } },
+  { name: 'launch_app', description: 'Launch an app by bundle ID', inputSchema: { type: 'object', properties: { app_id: { type: 'string', description: 'Bundle ID of the app to launch' } }, required: ['app_id'] } },
+  { name: 'stop_app', description: 'Stop an app by bundle ID', inputSchema: { type: 'object', properties: { app_id: { type: 'string', description: 'Bundle ID of the app to stop' } }, required: ['app_id'] } },
+  { name: 'run_flow', description: 'Run a Maestro YAML flow', inputSchema: { type: 'object', properties: { yaml: { type: 'string', description: 'YAML flow content' } }, required: ['yaml'] } },
+  { name: 'inspect_view_hierarchy', description: 'Get the UI element tree of the current screen', inputSchema: { type: 'object', properties: {} } },
+  { name: 'list_devices', description: 'List all available devices', inputSchema: { type: 'object', properties: {} } },
+];
+
 export function createMaestroToolsProxy(managers: MaestroToolsProxy) {
   return {
     async getTools() {
@@ -31,7 +45,9 @@ export function createMaestroToolsProxy(managers: MaestroToolsProxy) {
           await managers.maestroManager.initialize();
         } catch (error) {
           console.error('[expo-mcp] Failed to initialize Maestro for tools list:', error);
-          return [];
+          // Return fallback tools so they are always visible in the MCP tools list
+          // Calling these tools will attempt to initialize Maestro on demand
+          return FALLBACK_MAESTRO_TOOLS;
         }
       }
 

@@ -34,23 +34,23 @@ export const lifecycleToolSchemas = {
         .enum(['lan', 'tunnel', 'localhost'])
         .optional()
         .describe('Connection mode: lan (physical devices), tunnel (remote), localhost (simulator)'),
-      offline: z.boolean().optional().describe('Offline mode'),
+      offline: z.coerce.boolean().optional().describe('Offline mode'),
 
       // Server settings
-      port: z.number().optional().describe('Server port (default: 8081)'),
-      clear: z.boolean().optional().describe('Clear bundler cache'),
+      port: z.coerce.number().optional().describe('Server port (default: 8081)'),
+      clear: z.coerce.boolean().optional().describe('Clear bundler cache'),
 
       // Build options
-      dev: z.boolean().optional().describe('Development mode (default: true)'),
-      minify: z.boolean().optional().describe('Minify JavaScript'),
-      max_workers: z.number().optional().describe('Max Metro workers'),
+      dev: z.coerce.boolean().optional().describe('Development mode (default: true)'),
+      minify: z.coerce.boolean().optional().describe('Minify JavaScript'),
+      max_workers: z.coerce.number().optional().describe('Max Metro workers'),
 
       // Other
       scheme: z.string().optional().describe('Custom URI scheme'),
 
       // expo-mcp specific
-      wait_for_ready: z.boolean().optional().describe('Wait for server ready'),
-      timeout_secs: z.number().optional().describe('Timeout in seconds'),
+      wait_for_ready: z.coerce.boolean().optional().describe('Wait for server ready'),
+      timeout_secs: z.coerce.number().optional().describe('Timeout in seconds'),
     }),
   },
   stop_expo: {
@@ -67,8 +67,8 @@ export const lifecycleToolSchemas = {
     name: 'get_logs',
     description: 'Get Metro bundler logs and console output from the running Expo app',
     inputSchema: z.object({
-      limit: z.number().optional().describe('Maximum number of log lines to return (default: all)'),
-      clear: z.boolean().optional().describe('Clear the log buffer after reading (default: false)'),
+      limit: z.coerce.number().optional().describe('Maximum number of log lines to return (default: all)'),
+      clear: z.coerce.boolean().optional().describe('Clear the log buffer after reading (default: false)'),
       level: z
         .enum(['log', 'info', 'warn', 'error'])
         .optional()
@@ -156,18 +156,18 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
         // Poll for device connection (max 30 seconds, check every 2 seconds)
         device = await managers.maestroManager.waitForDeviceConnection(30000, 2000);
 
-        if (!device) {
-          // Stop Expo server since we can't establish a valid session
-          await managers.expoManager.stop();
-          throw new Error(
-            `Failed to establish session: No device detected after launching ${result.target}. ` +
-            `Please ensure the simulator/emulator is running and try again.`
+        if (device) {
+          // Store device_id in ExpoManager for session tracking
+          managers.expoManager.setDeviceId(device.device_id);
+          managers.maestroManager.setTargetDeviceId(device.device_id);
+        } else {
+          // Device detection failed, but keep server running
+          // User can still manually interact with the app
+          console.error(
+            `[Expo] Warning: Could not detect device after launching ${result.target}. ` +
+            `Maestro tools may not be available. Server will continue running.`
           );
         }
-
-        // Store device_id in ExpoManager for session tracking
-        managers.expoManager.setDeviceId(device.device_id);
-        managers.maestroManager.setTargetDeviceId(device.device_id);
       }
 
       // Generate appropriate message based on target and host
@@ -179,7 +179,11 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
             : result.target === 'android-emulator'
               ? 'Android Emulator'
               : 'Web Browser';
-        message = `Expo server started. ${targetName} launching...`;
+        if (device) {
+          message = `Expo server started. ${targetName} connected (${device.device_name}).`;
+        } else {
+          message = `Expo server started. ${targetName} launched but device detection failed. Maestro tools may not be available.`;
+        }
       } else if (result.host === 'tunnel') {
         message = 'Expo server started with tunnel. Scan QR code in terminal or use exp_url in Expo Go.';
       } else if (result.host === 'lan') {

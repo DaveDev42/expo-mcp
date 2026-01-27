@@ -470,7 +470,7 @@ var MaestroManager = class _MaestroManager {
       return;
     }
     console.error("[Maestro] Starting Maestro MCP process...");
-    const maestroPath = "/Users/dave/.maestro/bin/maestro";
+    const maestroPath = process.env.MAESTRO_CLI_PATH || `${process.env.HOME}/.maestro/bin/maestro`;
     this.process = spawn2(maestroPath, ["mcp"], {
       stdio: ["pipe", "pipe", "pipe"]
     });
@@ -767,19 +767,19 @@ var lifecycleToolSchemas = {
       device_id: z.string().optional().describe("Device ID for session reconnection. Use the device_id returned from a previous launch_expo call."),
       // Connection mode
       host: z.enum(["lan", "tunnel", "localhost"]).optional().describe("Connection mode: lan (physical devices), tunnel (remote), localhost (simulator)"),
-      offline: z.boolean().optional().describe("Offline mode"),
+      offline: z.coerce.boolean().optional().describe("Offline mode"),
       // Server settings
-      port: z.number().optional().describe("Server port (default: 8081)"),
-      clear: z.boolean().optional().describe("Clear bundler cache"),
+      port: z.coerce.number().optional().describe("Server port (default: 8081)"),
+      clear: z.coerce.boolean().optional().describe("Clear bundler cache"),
       // Build options
-      dev: z.boolean().optional().describe("Development mode (default: true)"),
-      minify: z.boolean().optional().describe("Minify JavaScript"),
-      max_workers: z.number().optional().describe("Max Metro workers"),
+      dev: z.coerce.boolean().optional().describe("Development mode (default: true)"),
+      minify: z.coerce.boolean().optional().describe("Minify JavaScript"),
+      max_workers: z.coerce.number().optional().describe("Max Metro workers"),
       // Other
       scheme: z.string().optional().describe("Custom URI scheme"),
       // expo-mcp specific
-      wait_for_ready: z.boolean().optional().describe("Wait for server ready"),
-      timeout_secs: z.number().optional().describe("Timeout in seconds")
+      wait_for_ready: z.coerce.boolean().optional().describe("Wait for server ready"),
+      timeout_secs: z.coerce.number().optional().describe("Timeout in seconds")
     })
   },
   stop_expo: {
@@ -796,8 +796,8 @@ var lifecycleToolSchemas = {
     name: "get_logs",
     description: "Get Metro bundler logs and console output from the running Expo app",
     inputSchema: z.object({
-      limit: z.number().optional().describe("Maximum number of log lines to return (default: all)"),
-      clear: z.boolean().optional().describe("Clear the log buffer after reading (default: false)"),
+      limit: z.coerce.number().optional().describe("Maximum number of log lines to return (default: all)"),
+      clear: z.coerce.boolean().optional().describe("Clear the log buffer after reading (default: false)"),
       level: z.enum(["log", "info", "warn", "error"]).optional().describe("Filter by minimum log level (log < info < warn < error)"),
       source: z.enum(["stdout", "stderr"]).optional().describe("Filter by output source")
     })
@@ -869,19 +869,23 @@ function createLifecycleHandlers(managers) {
       let device = null;
       if (result.target) {
         device = await managers.maestroManager.waitForDeviceConnection(3e4, 2e3);
-        if (!device) {
-          await managers.expoManager.stop();
-          throw new Error(
-            `Failed to establish session: No device detected after launching ${result.target}. Please ensure the simulator/emulator is running and try again.`
+        if (device) {
+          managers.expoManager.setDeviceId(device.device_id);
+          managers.maestroManager.setTargetDeviceId(device.device_id);
+        } else {
+          console.error(
+            `[Expo] Warning: Could not detect device after launching ${result.target}. Maestro tools may not be available. Server will continue running.`
           );
         }
-        managers.expoManager.setDeviceId(device.device_id);
-        managers.maestroManager.setTargetDeviceId(device.device_id);
       }
       let message;
       if (result.target) {
         const targetName = result.target === "ios-simulator" ? "iOS Simulator" : result.target === "android-emulator" ? "Android Emulator" : "Web Browser";
-        message = `Expo server started. ${targetName} launching...`;
+        if (device) {
+          message = `Expo server started. ${targetName} connected (${device.device_name}).`;
+        } else {
+          message = `Expo server started. ${targetName} launched but device detection failed. Maestro tools may not be available.`;
+        }
       } else if (result.host === "tunnel") {
         message = "Expo server started with tunnel. Scan QR code in terminal or use exp_url in Expo Go.";
       } else if (result.host === "lan") {
@@ -1074,6 +1078,17 @@ var DEVICE_REQUIRED_TOOLS = [
   "run_flow_files",
   "inspect_view_hierarchy"
 ];
+var FALLBACK_MAESTRO_TOOLS = [
+  { name: "take_screenshot", description: "Take a screenshot of the device screen", inputSchema: { type: "object", properties: {} } },
+  { name: "tap_on", description: "Tap on a UI element by text, id, or coordinates", inputSchema: { type: "object", properties: { text: { type: "string", description: "Text of element to tap" }, id: { type: "string", description: "Accessibility ID of element to tap" }, point: { type: "string", description: 'Coordinates to tap (e.g. "50%,50%")' } } } },
+  { name: "input_text", description: "Type text into the currently focused field", inputSchema: { type: "object", properties: { text: { type: "string", description: "Text to input" } }, required: ["text"] } },
+  { name: "back", description: "Press the back button", inputSchema: { type: "object", properties: {} } },
+  { name: "launch_app", description: "Launch an app by bundle ID", inputSchema: { type: "object", properties: { app_id: { type: "string", description: "Bundle ID of the app to launch" } }, required: ["app_id"] } },
+  { name: "stop_app", description: "Stop an app by bundle ID", inputSchema: { type: "object", properties: { app_id: { type: "string", description: "Bundle ID of the app to stop" } }, required: ["app_id"] } },
+  { name: "run_flow", description: "Run a Maestro YAML flow", inputSchema: { type: "object", properties: { yaml: { type: "string", description: "YAML flow content" } }, required: ["yaml"] } },
+  { name: "inspect_view_hierarchy", description: "Get the UI element tree of the current screen", inputSchema: { type: "object", properties: {} } },
+  { name: "list_devices", description: "List all available devices", inputSchema: { type: "object", properties: {} } }
+];
 function createMaestroToolsProxy(managers) {
   return {
     async getTools() {
@@ -1082,7 +1097,7 @@ function createMaestroToolsProxy(managers) {
           await managers.maestroManager.initialize();
         } catch (error) {
           console.error("[expo-mcp] Failed to initialize Maestro for tools list:", error);
-          return [];
+          return FALLBACK_MAESTRO_TOOLS;
         }
       }
       const tools = managers.maestroManager.getTools();
@@ -1162,6 +1177,7 @@ var McpServer = class {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
       const allLifecycleTools = Object.values(lifecycleToolSchemas).map((schema) => {
         const properties = {};
+        const required = [];
         if (schema.inputSchema.shape) {
           for (const [key, value] of Object.entries(schema.inputSchema.shape)) {
             const zodValue = value;
@@ -1169,6 +1185,12 @@ var McpServer = class {
               type: this.getZodType(zodValue),
               description: zodValue.description || ""
             };
+            if (zodValue._def?.typeName === "ZodEnum") {
+              properties[key].enum = zodValue._def.values;
+            }
+            if (!zodValue.isOptional()) {
+              required.push(key);
+            }
           }
         }
         return {
@@ -1176,7 +1198,8 @@ var McpServer = class {
           description: schema.description,
           inputSchema: {
             type: "object",
-            properties
+            properties,
+            ...required.length > 0 && { required }
           }
         };
       });
@@ -1199,7 +1222,9 @@ var McpServer = class {
           throw new Error(`Handler not implemented for tool: ${name}`);
         }
         try {
-          return await handler(args || {});
+          const schema = lifecycleToolSchemas[name];
+          const validatedArgs = schema.inputSchema.parse(args || {});
+          return await handler(validatedArgs);
         } catch (error) {
           return {
             content: [
