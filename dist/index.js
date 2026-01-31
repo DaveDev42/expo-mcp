@@ -226,7 +226,7 @@ var ExpoManager = class _ExpoManager {
       effectiveHost = "lan";
     }
     this.host = effectiveHost;
-    const shouldUseOffline = options.offline ?? process.env.CI === "1";
+    const shouldUseOffline = options.offline ?? true;
     if (shouldUseOffline) {
       args.push("--offline");
     } else if (effectiveHost === "tunnel") {

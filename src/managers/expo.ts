@@ -331,11 +331,11 @@ export class ExpoManager {
     }
     this.host = effectiveHost;
 
-    // In CI/non-interactive environments, enable offline mode by default
+    // Enable offline mode by default in MCP environment
     // This skips Expo server authentication (manifest signing) which requires EXPO_TOKEN
     // Users can override by explicitly setting offline: false
     // Note: Offline mode only affects Expo CLI communication, not app network features
-    const shouldUseOffline = options.offline ?? (process.env.CI === '1');
+    const shouldUseOffline = options.offline ?? true;
 
     // Host/offline → CLI flags (mutually exclusive in Expo CLI)
     // --offline takes precedence when enabled
