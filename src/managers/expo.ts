@@ -436,8 +436,13 @@ export class ExpoManager {
     return new Promise((resolve) => {
       const proc = this.process!;
       const pid = proc.pid!;
+      let forceKillTimeout: NodeJS.Timeout | null = null;
 
       const cleanup = () => {
+        if (forceKillTimeout) {
+          clearTimeout(forceKillTimeout);
+          forceKillTimeout = null;
+        }
         this.process = null;
         this.target = null;
         this.host = 'lan';
@@ -464,7 +469,7 @@ export class ExpoManager {
       }
 
       // Force kill after 5 seconds if still running
-      setTimeout(5000).then(() => {
+      forceKillTimeout = global.setTimeout(() => {
         if (this.process === proc) {
           console.error('[Expo] Force killing process group');
           if (process.platform !== 'win32') {
@@ -478,7 +483,7 @@ export class ExpoManager {
           }
           cleanup();
         }
-      });
+      }, 5000);
     });
   }
 

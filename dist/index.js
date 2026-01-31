@@ -311,7 +311,12 @@ var ExpoManager = class _ExpoManager {
     return new Promise((resolve) => {
       const proc = this.process;
       const pid = proc.pid;
+      let forceKillTimeout = null;
       const cleanup = () => {
+        if (forceKillTimeout) {
+          clearTimeout(forceKillTimeout);
+          forceKillTimeout = null;
+        }
         this.process = null;
         this.target = null;
         this.host = "lan";
@@ -332,7 +337,7 @@ var ExpoManager = class _ExpoManager {
         });
         proc.kill("SIGTERM");
       }
-      setTimeout(5e3).then(() => {
+      forceKillTimeout = global.setTimeout(() => {
         if (this.process === proc) {
           console.error("[Expo] Force killing process group");
           if (process.platform !== "win32") {
@@ -346,7 +351,7 @@ var ExpoManager = class _ExpoManager {
           }
           cleanup();
         }
-      });
+      }, 5e3);
     });
   }
   getStatus() {
@@ -452,7 +457,7 @@ var ExpoManager = class _ExpoManager {
 
 // src/managers/maestro.ts
 import { spawn as spawn2 } from "child_process";
-import { setTimeout as setTimeout2 } from "timers/promises";
+import { setTimeout as sleep } from "timers/promises";
 var MaestroManager = class _MaestroManager {
   process = null;
   tools = /* @__PURE__ */ new Map();
@@ -523,7 +528,7 @@ var MaestroManager = class _MaestroManager {
       return;
     }
     this.process.kill("SIGTERM");
-    await setTimeout2(1e3);
+    await sleep(1e3);
     if (this.process) {
       this.process.kill("SIGKILL");
     }
@@ -535,7 +540,7 @@ var MaestroManager = class _MaestroManager {
   async restart() {
     console.error("[Maestro] Restarting Maestro MCP...");
     await this.shutdown();
-    await setTimeout2(500);
+    await sleep(500);
     this.consecutiveErrors = 0;
     await this.initialize();
     console.error("[Maestro] Maestro MCP restarted successfully");
@@ -579,7 +584,7 @@ var MaestroManager = class _MaestroManager {
       if (device) {
         return device;
       }
-      await setTimeout2(pollIntervalMs);
+      await sleep(pollIntervalMs);
     }
     return null;
   }
@@ -708,6 +713,7 @@ var MaestroManager = class _MaestroManager {
   handleMessage(message) {
     if (message.id !== void 0 && this.pendingRequests.has(message.id)) {
       const pending = this.pendingRequests.get(message.id);
+      clearTimeout(pending.timeoutId);
       this.pendingRequests.delete(message.id);
       if (message.error) {
         pending.reject(new Error(message.error.message || JSON.stringify(message.error)));
@@ -722,18 +728,19 @@ var MaestroManager = class _MaestroManager {
         reject(new Error("Maestro process not running"));
         return;
       }
-      this.pendingRequests.set(request.id, { resolve, reject });
-      const message = JSON.stringify(request) + "\n";
-      this.process.stdin.write(message, (error) => {
-        if (error) {
-          this.pendingRequests.delete(request.id);
-          reject(error);
-        }
-      });
-      setTimeout2(3e4).then(() => {
+      const timeoutId = global.setTimeout(() => {
         if (this.pendingRequests.has(request.id)) {
           this.pendingRequests.delete(request.id);
           reject(new Error("Request timeout"));
+        }
+      }, 3e4);
+      this.pendingRequests.set(request.id, { resolve, reject, timeoutId });
+      const message = JSON.stringify(request) + "\n";
+      this.process.stdin.write(message, (error) => {
+        if (error) {
+          clearTimeout(timeoutId);
+          this.pendingRequests.delete(request.id);
+          reject(error);
         }
       });
     });
@@ -743,6 +750,7 @@ var MaestroManager = class _MaestroManager {
     this.isInitialized = false;
     this.tools.clear();
     for (const [id, pending] of this.pendingRequests) {
+      clearTimeout(pending.timeoutId);
       pending.reject(new Error("Maestro process terminated"));
     }
     this.pendingRequests.clear();
@@ -1226,6 +1234,7 @@ var McpServer = class {
           const validatedArgs = schema.inputSchema.parse(args || {});
           return await handler(validatedArgs);
         } catch (error) {
+          console.error(`[expo-mcp] Lifecycle tool error (${name}):`, error.message);
           return {
             content: [
               {
@@ -1248,6 +1257,7 @@ var McpServer = class {
         if (error.message?.includes("Unknown tool")) {
           throw new Error(`Unknown tool: ${name}`);
         }
+        console.error(`[expo-mcp] Maestro tool error (${name}):`, error.message);
         return {
           content: [
             {

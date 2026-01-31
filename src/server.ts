@@ -131,6 +131,7 @@ export class McpServer {
           const validatedArgs = schema.inputSchema.parse(args || {});
           return await (handler as any)(validatedArgs);
         } catch (error: any) {
+          console.error(`[expo-mcp] Lifecycle tool error (${name}):`, error.message);
           return {
             content: [
               {
@@ -157,6 +158,7 @@ export class McpServer {
         if (error.message?.includes('Unknown tool')) {
           throw new Error(`Unknown tool: ${name}`);
         }
+        console.error(`[expo-mcp] Maestro tool error (${name}):`, error.message);
         return {
           content: [
             {

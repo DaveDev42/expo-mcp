@@ -1,5 +1,5 @@
 import { spawn, ChildProcess } from 'child_process';
-import { setTimeout } from 'timers/promises';
+import { setTimeout as sleep } from 'timers/promises';
 
 export interface MaestroTool {
   name: string;
@@ -16,7 +16,7 @@ export class MaestroManager {
   private process: ChildProcess | null = null;
   private tools: Map<string, MaestroTool> = new Map();
   private requestId = 0;
-  private pendingRequests: Map<number, { resolve: (value: any) => void; reject: (error: Error) => void }> = new Map();
+  private pendingRequests: Map<number, { resolve: (value: any) => void; reject: (error: Error) => void; timeoutId: NodeJS.Timeout }> = new Map();
   private readBuffer = '';
   private isInitialized = false;
   private lastConnectedDevice: string | null = null;
@@ -99,7 +99,7 @@ export class MaestroManager {
     }
 
     this.process.kill('SIGTERM');
-    await setTimeout(1000);
+    await sleep(1000);
 
     if (this.process) {
       this.process.kill('SIGKILL');
@@ -114,7 +114,7 @@ export class MaestroManager {
   async restart(): Promise<void> {
     console.error('[Maestro] Restarting Maestro MCP...');
     await this.shutdown();
-    await setTimeout(500);
+    await sleep(500);
     this.consecutiveErrors = 0;
     await this.initialize();
     console.error('[Maestro] Maestro MCP restarted successfully');
@@ -168,7 +168,7 @@ export class MaestroManager {
       if (device) {
         return device;
       }
-      await setTimeout(pollIntervalMs);
+      await sleep(pollIntervalMs);
     }
 
     return null;
@@ -331,6 +331,7 @@ export class MaestroManager {
   private handleMessage(message: any): void {
     if (message.id !== undefined && this.pendingRequests.has(message.id)) {
       const pending = this.pendingRequests.get(message.id)!;
+      clearTimeout(pending.timeoutId);
       this.pendingRequests.delete(message.id);
 
       if (message.error) {
@@ -348,21 +349,22 @@ export class MaestroManager {
         return;
       }
 
-      this.pendingRequests.set(request.id, { resolve, reject });
+      // Timeout after 30 seconds (use global.setTimeout for clearable timeout)
+      const timeoutId = global.setTimeout(() => {
+        if (this.pendingRequests.has(request.id)) {
+          this.pendingRequests.delete(request.id);
+          reject(new Error('Request timeout'));
+        }
+      }, 30000);
+
+      this.pendingRequests.set(request.id, { resolve, reject, timeoutId });
 
       const message = JSON.stringify(request) + '\n';
       this.process.stdin.write(message, (error) => {
         if (error) {
+          clearTimeout(timeoutId);
           this.pendingRequests.delete(request.id);
           reject(error);
-        }
-      });
-
-      // Timeout after 30 seconds
-      setTimeout(30000).then(() => {
-        if (this.pendingRequests.has(request.id)) {
-          this.pendingRequests.delete(request.id);
-          reject(new Error('Request timeout'));
         }
       });
     });
@@ -373,8 +375,9 @@ export class MaestroManager {
     this.isInitialized = false;
     this.tools.clear();
 
-    // Reject all pending requests
+    // Reject all pending requests and clear their timeouts
     for (const [id, pending] of this.pendingRequests) {
+      clearTimeout(pending.timeoutId);
       pending.reject(new Error('Maestro process terminated'));
     }
     this.pendingRequests.clear();
