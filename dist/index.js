@@ -229,7 +229,8 @@ var ExpoManager = class _ExpoManager {
     const shouldUseOffline = options.offline ?? true;
     if (shouldUseOffline) {
       args.push("--offline");
-    } else if (effectiveHost === "tunnel") {
+    }
+    if (effectiveHost === "tunnel" && !shouldUseOffline) {
       args.push("--tunnel");
     } else if (effectiveHost === "lan") {
       args.push("--lan");

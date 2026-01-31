@@ -337,11 +337,14 @@ export class ExpoManager {
     // Note: Offline mode only affects Expo CLI communication, not app network features
     const shouldUseOffline = options.offline ?? true;
 
-    // Host/offline → CLI flags (mutually exclusive in Expo CLI)
-    // --offline takes precedence when enabled
+    // Offline mode flag
     if (shouldUseOffline) {
       args.push('--offline');
-    } else if (effectiveHost === 'tunnel') {
+    }
+
+    // Host mode flag (can be combined with --offline)
+    // Note: --tunnel requires online mode, so skip it when offline
+    if (effectiveHost === 'tunnel' && !shouldUseOffline) {
       args.push('--tunnel');
     } else if (effectiveHost === 'lan') {
       args.push('--lan');
