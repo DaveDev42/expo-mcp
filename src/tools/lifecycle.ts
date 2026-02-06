@@ -47,6 +47,17 @@ export const lifecycleToolSchemas = {
 
       // Other
       scheme: z.string().optional().describe('Custom URI scheme'),
+      simulator_name: z.string().optional()
+        .describe('iOS simulator name (e.g., "iPhone 16 Pro"). Only for ios-simulator target.'),
+      clean_state: z.coerce.boolean().optional()
+        .describe('Clean simulator state before launch (reset keychain, clear app data). Default: false'),
+      skip_dev_menu_onboarding: z.coerce.boolean().optional()
+        .describe('Skip Expo Go dev menu onboarding (default: true)'),
+      auto_login: z.object({
+        phone: z.string().optional().describe('Phone number'),
+        password: z.string().optional().describe('Password'),
+        flow_file: z.string().optional().describe('Custom Maestro YAML flow file path'),
+      }).optional().describe('Auto-login after app loads. Also reads EXPO_TEST_PHONE/EXPO_TEST_PASSWORD env vars.'),
 
       // expo-mcp specific
       wait_for_ready: z.coerce.boolean().optional().describe('Wait for server ready'),
@@ -167,6 +178,52 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
             `[Expo] Warning: Could not detect device after launching ${result.target}. ` +
             `Maestro tools may not be available. Server will continue running.`
           );
+        }
+      }
+
+      // Dev menu onboarding 억제 (기본: true)
+      if ((args.skip_dev_menu_onboarding ?? true) && device) {
+        managers.expoManager.suppressDevMenuOnboarding();
+      }
+
+      // 번들 완료 + 디바이스 준비 대기
+      if (device) {
+        await managers.expoManager.waitForBundleComplete(60000);
+        const ready = await managers.maestroManager.verifyDeviceReady(device.device_id);
+        if (!ready) {
+          console.error('[Expo] Warning: Device readiness probe failed');
+        }
+      }
+
+      // 자동 로그인
+      const phone = args.auto_login?.phone || process.env.EXPO_TEST_PHONE;
+      const password = args.auto_login?.password || process.env.EXPO_TEST_PASSWORD;
+
+      if (device && (args.auto_login?.flow_file || (phone && password))) {
+        try {
+          if (args.auto_login?.flow_file) {
+            await managers.maestroManager.callTool('run_flow_files', {
+              device_id: device.device_id,
+              flow_files: args.auto_login.flow_file,
+            });
+          } else {
+            await managers.maestroManager.callTool('run_flow', {
+              device_id: device.device_id,
+              flow_yaml: [
+                'appId: host.exp.Exponent',
+                '---',
+                `- tapOn: "전화번호"`,
+                `- inputText: "${phone}"`,
+                `- tapOn: "비밀번호"`,
+                `- inputText: "${password}"`,
+                `- tapOn: "로그인"`,
+                `- waitForAnimationToEnd`,
+              ].join('\n'),
+            });
+          }
+          console.error('[Expo] Auto-login completed');
+        } catch (e: any) {
+          console.error(`[Expo] Auto-login failed (non-fatal): ${e.message}`);
         }
       }
 

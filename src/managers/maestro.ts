@@ -251,6 +251,23 @@ export class MaestroManager {
     }
   }
 
+  /** 디바이스와 실제 상호작용 가능 여부 확인 */
+  async verifyDeviceReady(deviceId: string, maxAttempts: number = 3): Promise<boolean> {
+    for (let i = 0; i < maxAttempts; i++) {
+      try {
+        const result = await this.callTool('inspect_view_hierarchy', { device_id: deviceId });
+        if (result.content?.[0]?.text && !result.isError) {
+          console.error('[Maestro] Device readiness verified');
+          return true;
+        }
+      } catch {
+        console.error(`[Maestro] Readiness probe ${i + 1}/${maxAttempts} failed`);
+      }
+      await sleep(2000);
+    }
+    return false;
+  }
+
   async callTool(name: string, args: any, isRetry = false): Promise<MaestroToolCallResult> {
     if (!this.isInitialized) {
       throw new Error('MaestroManager not initialized. Call initialize() first.');

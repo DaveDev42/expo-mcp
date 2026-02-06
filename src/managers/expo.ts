@@ -47,6 +47,12 @@ export interface ExpoLaunchOptions {
   /** Custom URI scheme */
   scheme?: string;
 
+  /** iOS simulator name (e.g., "iPhone 16 Pro"). iOS only. */
+  simulator_name?: string;
+
+  /** Clean simulator state before launch (keychain reset, app data clear). Default: false */
+  clean_state?: boolean;
+
   /** expo-mcp specific: wait for server ready */
   wait_for_ready?: boolean;
   /** expo-mcp specific: timeout in seconds */
@@ -275,6 +281,96 @@ export class ExpoManager {
     }
   }
 
+  /** iOS 시뮬레이터에 Expo Go 설치 여부 확인 */
+  private isExpoGoInstalledIOS(): boolean {
+    try {
+      const output = execSync('xcrun simctl listapps booted', {
+        encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
+      });
+      return output.includes('host.exp.Exponent');
+    } catch { return false; }
+  }
+
+  /** Android 에뮬레이터에 Expo Go 설치 여부 확인 */
+  private isExpoGoInstalledAndroid(adbPath: string): boolean {
+    try {
+      const output = execSync(`${adbPath} shell pm list packages host.exp.exponent`, {
+        encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
+      });
+      return output.includes('host.exp.exponent');
+    } catch { return false; }
+  }
+
+  /** iOS 시뮬레이터 상태 정리 (키체인 리셋, Expo Go 종료) */
+  private cleanIOSSimulatorState(): void {
+    console.error('[Expo] Cleaning iOS simulator state...');
+    for (const cmd of [
+      'xcrun simctl keychain booted reset',
+      'xcrun simctl terminate booted host.exp.Exponent',
+    ]) {
+      try { execSync(cmd, { stdio: 'pipe', timeout: 10000 }); }
+      catch { /* skip */ }
+    }
+  }
+
+  /** Android 에뮬레이터 상태 정리 (Expo Go 앱 데이터 초기화) */
+  private cleanAndroidEmulatorState(adbPath: string): void {
+    console.error('[Expo] Cleaning Android emulator state...');
+    try { execSync(`${adbPath} shell pm clear host.exp.exponent`, { stdio: 'pipe', timeout: 10000 }); }
+    catch { /* skip */ }
+  }
+
+  /** iOS dev menu onboarding 억제 (UserDefaults 설정) */
+  suppressDevMenuOnboardingIOS(): void {
+    try {
+      execSync(
+        'xcrun simctl spawn booted defaults write host.exp.Exponent EXDevMenuIsOnboardingFinished -bool true',
+        { stdio: 'pipe', timeout: 10000 }
+      );
+      console.error('[Expo] iOS dev menu onboarding suppressed');
+    } catch (e: any) {
+      console.error(`[Expo] Failed to suppress iOS onboarding: ${e.message}`);
+    }
+  }
+
+  /** Android dev menu onboarding 억제 (broadcast) */
+  suppressDevMenuOnboardingAndroid(): void {
+    const adbPath = this.getAdbPath();
+    if (!adbPath) return;
+    try {
+      execSync(`${adbPath} shell am broadcast -a expo.modules.devmenu.DISABLE_ONBOARDING`,
+        { stdio: 'pipe', timeout: 10000 });
+      console.error('[Expo] Android dev menu onboarding suppressed');
+    } catch (e: any) {
+      console.error(`[Expo] Failed to suppress Android onboarding: ${e.message}`);
+    }
+  }
+
+  /** 현재 타겟에 맞게 onboarding 억제 */
+  suppressDevMenuOnboarding(): void {
+    if (this.target === 'ios-simulator') this.suppressDevMenuOnboardingIOS();
+    else if (this.target === 'android-emulator') this.suppressDevMenuOnboardingAndroid();
+  }
+
+  /** Metro 번들링 완료 대기 (로그 버퍼 감시) */
+  async waitForBundleComplete(timeoutMs: number = 60000): Promise<boolean> {
+    const startTime = Date.now();
+    const patterns = [/Bundled \d+ms/i, /Bundle complete/i, /Log box/i];
+
+    while (Date.now() - startTime < timeoutMs) {
+      const recent = this.logBuffer.filter(l => l.timestamp > startTime);
+      for (const log of recent) {
+        if (patterns.some(p => p.test(log.message))) {
+          console.error(`[Expo] Bundle ready: ${log.message.substring(0, 80)}`);
+          return true;
+        }
+      }
+      await setTimeout(1000);
+    }
+    console.error('[Expo] Bundle completion not detected within timeout');
+    return false;
+  }
+
   async launch(options: ExpoLaunchOptions = {}): Promise<ExpoLaunchResult> {
     const requestedPort = options.port ?? 8081;
     const target = options.target ?? null;
@@ -302,6 +398,15 @@ export class ExpoManager {
       }
     }
 
+    // Clean simulator/emulator state before launch
+    if (options.clean_state) {
+      if (target === 'ios-simulator') this.cleanIOSSimulatorState();
+      else if (target === 'android-emulator') {
+        const adbPath = this.getAdbPath();
+        if (adbPath) this.cleanAndroidEmulatorState(adbPath);
+      }
+    }
+
     this.port = port;
     this.target = target;
 
@@ -315,6 +420,11 @@ export class ExpoManager {
       args.push('--android');
     } else if (target === 'web-browser') {
       args.push('--web');
+    }
+
+    // iOS simulator name selection
+    if (target === 'ios-simulator' && options.simulator_name) {
+      args.push('--device', options.simulator_name);
     }
 
     // Determine effective host mode
@@ -335,7 +445,22 @@ export class ExpoManager {
     // This skips Expo server authentication (manifest signing) which requires EXPO_TOKEN
     // Users can override by explicitly setting offline: false
     // Note: Offline mode only affects Expo CLI communication, not app network features
-    const shouldUseOffline = options.offline ?? true;
+    let shouldUseOffline = options.offline ?? true;
+
+    // Auto-disable offline if Expo Go is not installed (needs network to download)
+    if (shouldUseOffline && options.offline === undefined && target) {
+      let installed = true;
+      if (target === 'ios-simulator') {
+        installed = this.isExpoGoInstalledIOS();
+      } else if (target === 'android-emulator') {
+        const adbPath = this.getAdbPath();
+        installed = adbPath ? this.isExpoGoInstalledAndroid(adbPath) : true;
+      }
+      if (!installed) {
+        console.error('[Expo] Expo Go not installed. Disabling offline mode for installation.');
+        shouldUseOffline = false;
+      }
+    }
 
     // Host/offline flags are mutually exclusive in Expo CLI
     // --offline implies localhost behavior

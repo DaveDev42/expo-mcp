@@ -186,6 +186,99 @@ var ExpoManager = class _ExpoManager {
       }
     }
   }
+  /** iOS 시뮬레이터에 Expo Go 설치 여부 확인 */
+  isExpoGoInstalledIOS() {
+    try {
+      const output = execSync("xcrun simctl listapps booted", {
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"]
+      });
+      return output.includes("host.exp.Exponent");
+    } catch {
+      return false;
+    }
+  }
+  /** Android 에뮬레이터에 Expo Go 설치 여부 확인 */
+  isExpoGoInstalledAndroid(adbPath) {
+    try {
+      const output = execSync(`${adbPath} shell pm list packages host.exp.exponent`, {
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"]
+      });
+      return output.includes("host.exp.exponent");
+    } catch {
+      return false;
+    }
+  }
+  /** iOS 시뮬레이터 상태 정리 (키체인 리셋, Expo Go 종료) */
+  cleanIOSSimulatorState() {
+    console.error("[Expo] Cleaning iOS simulator state...");
+    for (const cmd of [
+      "xcrun simctl keychain booted reset",
+      "xcrun simctl terminate booted host.exp.Exponent"
+    ]) {
+      try {
+        execSync(cmd, { stdio: "pipe", timeout: 1e4 });
+      } catch {
+      }
+    }
+  }
+  /** Android 에뮬레이터 상태 정리 (Expo Go 앱 데이터 초기화) */
+  cleanAndroidEmulatorState(adbPath) {
+    console.error("[Expo] Cleaning Android emulator state...");
+    try {
+      execSync(`${adbPath} shell pm clear host.exp.exponent`, { stdio: "pipe", timeout: 1e4 });
+    } catch {
+    }
+  }
+  /** iOS dev menu onboarding 억제 (UserDefaults 설정) */
+  suppressDevMenuOnboardingIOS() {
+    try {
+      execSync(
+        "xcrun simctl spawn booted defaults write host.exp.Exponent EXDevMenuIsOnboardingFinished -bool true",
+        { stdio: "pipe", timeout: 1e4 }
+      );
+      console.error("[Expo] iOS dev menu onboarding suppressed");
+    } catch (e) {
+      console.error(`[Expo] Failed to suppress iOS onboarding: ${e.message}`);
+    }
+  }
+  /** Android dev menu onboarding 억제 (broadcast) */
+  suppressDevMenuOnboardingAndroid() {
+    const adbPath = this.getAdbPath();
+    if (!adbPath) return;
+    try {
+      execSync(
+        `${adbPath} shell am broadcast -a expo.modules.devmenu.DISABLE_ONBOARDING`,
+        { stdio: "pipe", timeout: 1e4 }
+      );
+      console.error("[Expo] Android dev menu onboarding suppressed");
+    } catch (e) {
+      console.error(`[Expo] Failed to suppress Android onboarding: ${e.message}`);
+    }
+  }
+  /** 현재 타겟에 맞게 onboarding 억제 */
+  suppressDevMenuOnboarding() {
+    if (this.target === "ios-simulator") this.suppressDevMenuOnboardingIOS();
+    else if (this.target === "android-emulator") this.suppressDevMenuOnboardingAndroid();
+  }
+  /** Metro 번들링 완료 대기 (로그 버퍼 감시) */
+  async waitForBundleComplete(timeoutMs = 6e4) {
+    const startTime = Date.now();
+    const patterns = [/Bundled \d+ms/i, /Bundle complete/i, /Log box/i];
+    while (Date.now() - startTime < timeoutMs) {
+      const recent = this.logBuffer.filter((l) => l.timestamp > startTime);
+      for (const log of recent) {
+        if (patterns.some((p) => p.test(log.message))) {
+          console.error(`[Expo] Bundle ready: ${log.message.substring(0, 80)}`);
+          return true;
+        }
+      }
+      await setTimeout(1e3);
+    }
+    console.error("[Expo] Bundle completion not detected within timeout");
+    return false;
+  }
   async launch(options = {}) {
     const requestedPort = options.port ?? 8081;
     const target = options.target ?? null;
@@ -207,6 +300,13 @@ var ExpoManager = class _ExpoManager {
         }
       }
     }
+    if (options.clean_state) {
+      if (target === "ios-simulator") this.cleanIOSSimulatorState();
+      else if (target === "android-emulator") {
+        const adbPath = this.getAdbPath();
+        if (adbPath) this.cleanAndroidEmulatorState(adbPath);
+      }
+    }
     this.port = port;
     this.target = target;
     const args = ["expo", "start", "--port", port.toString()];
@@ -217,6 +317,9 @@ var ExpoManager = class _ExpoManager {
     } else if (target === "web-browser") {
       args.push("--web");
     }
+    if (target === "ios-simulator" && options.simulator_name) {
+      args.push("--device", options.simulator_name);
+    }
     let effectiveHost;
     if (options.host) {
       effectiveHost = options.host;
@@ -226,7 +329,20 @@ var ExpoManager = class _ExpoManager {
       effectiveHost = "lan";
     }
     this.host = effectiveHost;
-    const shouldUseOffline = options.offline ?? true;
+    let shouldUseOffline = options.offline ?? true;
+    if (shouldUseOffline && options.offline === void 0 && target) {
+      let installed = true;
+      if (target === "ios-simulator") {
+        installed = this.isExpoGoInstalledIOS();
+      } else if (target === "android-emulator") {
+        const adbPath = this.getAdbPath();
+        installed = adbPath ? this.isExpoGoInstalledAndroid(adbPath) : true;
+      }
+      if (!installed) {
+        console.error("[Expo] Expo Go not installed. Disabling offline mode for installation.");
+        shouldUseOffline = false;
+      }
+    }
     if (shouldUseOffline) {
       args.push("--offline");
     } else if (effectiveHost === "tunnel") {
@@ -652,6 +768,22 @@ var MaestroManager = class _MaestroManager {
       return [];
     }
   }
+  /** 디바이스와 실제 상호작용 가능 여부 확인 */
+  async verifyDeviceReady(deviceId, maxAttempts = 3) {
+    for (let i = 0; i < maxAttempts; i++) {
+      try {
+        const result = await this.callTool("inspect_view_hierarchy", { device_id: deviceId });
+        if (result.content?.[0]?.text && !result.isError) {
+          console.error("[Maestro] Device readiness verified");
+          return true;
+        }
+      } catch {
+        console.error(`[Maestro] Readiness probe ${i + 1}/${maxAttempts} failed`);
+      }
+      await sleep(2e3);
+    }
+    return false;
+  }
   async callTool(name, args, isRetry = false) {
     if (!this.isInitialized) {
       throw new Error("MaestroManager not initialized. Call initialize() first.");
@@ -785,6 +917,14 @@ var lifecycleToolSchemas = {
       max_workers: z.coerce.number().optional().describe("Max Metro workers"),
       // Other
       scheme: z.string().optional().describe("Custom URI scheme"),
+      simulator_name: z.string().optional().describe('iOS simulator name (e.g., "iPhone 16 Pro"). Only for ios-simulator target.'),
+      clean_state: z.coerce.boolean().optional().describe("Clean simulator state before launch (reset keychain, clear app data). Default: false"),
+      skip_dev_menu_onboarding: z.coerce.boolean().optional().describe("Skip Expo Go dev menu onboarding (default: true)"),
+      auto_login: z.object({
+        phone: z.string().optional().describe("Phone number"),
+        password: z.string().optional().describe("Password"),
+        flow_file: z.string().optional().describe("Custom Maestro YAML flow file path")
+      }).optional().describe("Auto-login after app loads. Also reads EXPO_TEST_PHONE/EXPO_TEST_PASSWORD env vars."),
       // expo-mcp specific
       wait_for_ready: z.coerce.boolean().optional().describe("Wait for server ready"),
       timeout_secs: z.coerce.number().optional().describe("Timeout in seconds")
@@ -884,6 +1024,45 @@ function createLifecycleHandlers(managers) {
           console.error(
             `[Expo] Warning: Could not detect device after launching ${result.target}. Maestro tools may not be available. Server will continue running.`
           );
+        }
+      }
+      if ((args.skip_dev_menu_onboarding ?? true) && device) {
+        managers.expoManager.suppressDevMenuOnboarding();
+      }
+      if (device) {
+        await managers.expoManager.waitForBundleComplete(6e4);
+        const ready = await managers.maestroManager.verifyDeviceReady(device.device_id);
+        if (!ready) {
+          console.error("[Expo] Warning: Device readiness probe failed");
+        }
+      }
+      const phone = args.auto_login?.phone || process.env.EXPO_TEST_PHONE;
+      const password = args.auto_login?.password || process.env.EXPO_TEST_PASSWORD;
+      if (device && (args.auto_login?.flow_file || phone && password)) {
+        try {
+          if (args.auto_login?.flow_file) {
+            await managers.maestroManager.callTool("run_flow_files", {
+              device_id: device.device_id,
+              flow_files: args.auto_login.flow_file
+            });
+          } else {
+            await managers.maestroManager.callTool("run_flow", {
+              device_id: device.device_id,
+              flow_yaml: [
+                "appId: host.exp.Exponent",
+                "---",
+                `- tapOn: "\uC804\uD654\uBC88\uD638"`,
+                `- inputText: "${phone}"`,
+                `- tapOn: "\uBE44\uBC00\uBC88\uD638"`,
+                `- inputText: "${password}"`,
+                `- tapOn: "\uB85C\uADF8\uC778"`,
+                `- waitForAnimationToEnd`
+              ].join("\n")
+            });
+          }
+          console.error("[Expo] Auto-login completed");
+        } catch (e) {
+          console.error(`[Expo] Auto-login failed (non-fatal): ${e.message}`);
         }
       }
       let message;
