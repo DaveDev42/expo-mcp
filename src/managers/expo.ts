@@ -365,8 +365,10 @@ export class ExpoManager {
     }
 
     // Launch Expo dev server with detached process group for proper cleanup
-    // CI=1 disables interactive prompts and skips optional inputs
-    const env = { ...process.env, CI: '1' };
+    // Interactive prompts are already prevented because stdio is piped
+    // (process.stdout.isTTY is false), making Expo CLI's isInteractive() return false.
+    // We do NOT set CI=1 as it triggers full CI mode requiring EXPO_TOKEN.
+    const env = { ...process.env };
 
     this.process = spawn('npx', args, {
       cwd: this.appDir,

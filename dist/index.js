@@ -251,7 +251,7 @@ var ExpoManager = class _ExpoManager {
     if (options.scheme) {
       args.push("--scheme", options.scheme);
     }
-    const env = { ...process.env, CI: "1" };
+    const env = { ...process.env };
     this.process = spawn("npx", args, {
       cwd: this.appDir,
       stdio: ["pipe", "pipe", "pipe"],
