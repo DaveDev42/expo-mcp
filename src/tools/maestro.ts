@@ -33,6 +33,7 @@ const FALLBACK_MAESTRO_TOOLS = [
   { name: 'launch_app', description: 'Launch an app by bundle ID', inputSchema: { type: 'object', properties: { app_id: { type: 'string', description: 'Bundle ID of the app to launch' } }, required: ['app_id'] } },
   { name: 'stop_app', description: 'Stop an app by bundle ID', inputSchema: { type: 'object', properties: { app_id: { type: 'string', description: 'Bundle ID of the app to stop' } }, required: ['app_id'] } },
   { name: 'run_flow', description: 'Run a Maestro YAML flow', inputSchema: { type: 'object', properties: { yaml: { type: 'string', description: 'YAML flow content' } }, required: ['yaml'] } },
+  { name: 'run_flow_files', description: 'Run Maestro flow files from the project directory', inputSchema: { type: 'object', properties: { paths: { type: 'array', items: { type: 'string' }, description: 'Paths to Maestro flow files' } }, required: ['paths'] } },
   { name: 'inspect_view_hierarchy', description: 'Get the UI element tree of the current screen', inputSchema: { type: 'object', properties: {} } },
   { name: 'list_devices', description: 'List all available devices', inputSchema: { type: 'object', properties: {} } },
 ];
