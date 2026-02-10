@@ -1,8 +1,8 @@
 # Dependencies
 node_modules/
 
-# Build output (auto-built via prepare script)
-dist/
+# Build output (dist/ is committed for npx/pnpx compatibility)
+# dist/
 
 # Logs
 *.log
