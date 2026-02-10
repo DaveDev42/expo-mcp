@@ -1,0 +1,9 @@
+#!/bin/sh
+# Ensure dist/ is rebuilt when src/ changes
+if git diff --cached --name-only | grep -q '^src/'; then
+  if ! git diff --cached --name-only | grep -q '^dist/'; then
+    echo "Error: src/ files are staged but dist/ is not."
+    echo "Run 'npm run build' and stage dist/ before committing."
+    exit 1
+  fi
+fi
