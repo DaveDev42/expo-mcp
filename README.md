@@ -11,9 +11,13 @@ MCP server for Expo/React Native app automation with Maestro integration.
 ## Installation
 
 ```bash
-npm install -g expo-mcp
-# or
-npx expo-mcp
+npx -y expo-mcp
+```
+
+With pnpm:
+
+```bash
+pnpx expo-mcp
 ```
 
 ## Usage with Claude Code
@@ -25,13 +29,68 @@ Add to your `.mcp.json`:
   "mcpServers": {
     "expo-mcp": {
       "command": "npx",
-      "args": ["-y", "expo-mcp"],
-      "env": {
-        "EXPO_APP_DIR": "/path/to/your/expo/app"
-      }
+      "args": ["-y", "expo-mcp"]
     }
   }
 }
+```
+
+### Monorepo Setup
+
+Use a positional argument to specify the app directory:
+
+```json
+{
+  "mcpServers": {
+    "expo-mcp": {
+      "command": "npx",
+      "args": ["-y", "expo-mcp", "apps/mobile"]
+    }
+  }
+}
+```
+
+### Tool Filtering
+
+Exclude specific tools with `--exclude-tools`:
+
+```json
+{
+  "mcpServers": {
+    "expo-mcp": {
+      "command": "npx",
+      "args": ["-y", "expo-mcp", "apps/mobile", "--exclude-tools=list_devices"]
+    }
+  }
+}
+```
+
+Or expose only specific tools with `--tools`:
+
+```json
+{
+  "mcpServers": {
+    "expo-mcp": {
+      "command": "npx",
+      "args": ["-y", "expo-mcp", "--tools=launch_expo,stop_expo,take_screenshot"]
+    }
+  }
+}
+```
+
+## CLI Reference
+
+```
+Usage: expo-mcp [app-dir] [options]
+
+Arguments:
+  app-dir                      Path to Expo app directory (default: cwd)
+
+Options:
+  --exclude-tools=tool1,tool2  Exclude specific tools from the MCP server
+  --tools=tool1,tool2          Only expose specific tools
+  -h, --help                   Show help message
+  -v, --version                Show version number
 ```
 
 ## Quick Start
@@ -90,6 +149,7 @@ All Maestro tools work automatically once a session is active:
 | `launch_app` | Launch app by bundle ID |
 | `back` | Press back button |
 | `run_flow` | Run Maestro YAML flow |
+| `run_flow_files` | Run Maestro flow files from project directory |
 
 > **Note**: Maestro tools require an active session. Call `launch_expo` first.
 
@@ -97,9 +157,10 @@ All Maestro tools work automatically once a session is active:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `EXPO_APP_DIR` | Path to Expo app directory | Current working directory |
+| `EXPO_APP_DIR` | Path to Expo app directory (CLI positional arg takes precedence) | Current working directory |
 | `MAESTRO_CLI_PATH` | Path to Maestro CLI | `~/.maestro/bin/maestro` |
-| `ESSENTIAL_TOOLS` | Comma-separated list of tools to expose | All tools |
+| `ESSENTIAL_TOOLS` | Comma-separated list of tools to expose (`--tools` takes precedence) | All tools |
+| `EXCLUDE_TOOLS` | Comma-separated list of tools to exclude (`--exclude-tools` takes precedence) | None |
 | `LOG_BUFFER_SIZE` | Max log lines to keep in memory | 400 |
 | `EXPO_TOKEN` | Expo authentication token (optional, only needed if offline mode is disabled) | None |
 

@@ -12,11 +12,21 @@ import { MaestroManager } from './managers/maestro.js';
 import { lifecycleToolSchemas, createLifecycleHandlers } from './tools/lifecycle.js';
 import { createMaestroToolsProxy } from './tools/maestro.js';
 
-// Parse ESSENTIAL_TOOLS from environment
-function getEssentialTools(): Set<string> | null {
-  const envValue = process.env.ESSENTIAL_TOOLS;
-  if (!envValue) return null; // null means show all tools
-  return new Set(envValue.split(',').map((t) => t.trim()).filter(Boolean));
+export interface ToolFilterConfig {
+  essentialTools?: string;
+  excludeTools?: string;
+}
+
+function createToolFilter(config?: ToolFilterConfig): (name: string) => boolean {
+  if (config?.essentialTools) {
+    const set = new Set(config.essentialTools.split(',').map((t) => t.trim()).filter(Boolean));
+    return (name) => set.has(name);
+  }
+  if (config?.excludeTools) {
+    const set = new Set(config.excludeTools.split(',').map((t) => t.trim()).filter(Boolean));
+    return (name) => !set.has(name);
+  }
+  return () => true;
 }
 
 export class McpServer {
@@ -25,8 +35,10 @@ export class McpServer {
   private maestroManager: MaestroManager;
   private lifecycleHandlers: ReturnType<typeof createLifecycleHandlers>;
   private maestroProxy: ReturnType<typeof createMaestroToolsProxy>;
+  private toolFilterConfig?: ToolFilterConfig;
 
-  constructor(appDir?: string) {
+  constructor(appDir?: string, toolFilter?: ToolFilterConfig) {
+    this.toolFilterConfig = toolFilter;
     this.server = new Server(
       {
         name: 'expo-mcp',
@@ -58,8 +70,7 @@ export class McpServer {
   }
 
   private setupHandlers() {
-    // Get essential tools filter (null = show all)
-    const essentialTools = getEssentialTools();
+    const shouldInclude = createToolFilter(this.toolFilterConfig);
 
     // List tools handler
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -104,10 +115,7 @@ export class McpServer {
 
       const allTools = [...allLifecycleTools, ...allMaestroTools];
 
-      // Filter tools if ESSENTIAL_TOOLS is set
-      const filteredTools = essentialTools
-        ? allTools.filter((tool) => essentialTools.has(tool.name))
-        : allTools;
+      const filteredTools = allTools.filter((tool) => shouldInclude(tool.name));
 
       return {
         tools: filteredTools,
