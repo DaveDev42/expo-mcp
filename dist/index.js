@@ -300,6 +300,16 @@ var ExpoManager = class _ExpoManager {
         }
       }
     }
+    if (target === "ios-simulator") {
+      try {
+        execSync("defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool true", {
+          stdio: "pipe",
+          timeout: 5e3
+        });
+        console.error("[Expo] iOS simulator hardware keyboard enabled");
+      } catch {
+      }
+    }
     if (options.clean_state) {
       if (target === "ios-simulator") this.cleanIOSSimulatorState();
       else if (target === "android-emulator") {
