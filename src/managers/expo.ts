@@ -398,6 +398,17 @@ export class ExpoManager {
       }
     }
 
+    // Force hardware keyboard on iOS simulator to prevent software keyboard
+    // from blocking UI elements during automated testing
+    if (target === 'ios-simulator') {
+      try {
+        execSync('defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool true', {
+          stdio: 'pipe', timeout: 5000,
+        });
+        console.error('[Expo] iOS simulator hardware keyboard enabled');
+      } catch { /* skip */ }
+    }
+
     // Clean simulator/emulator state before launch
     if (options.clean_state) {
       if (target === 'ios-simulator') this.cleanIOSSimulatorState();
