@@ -19,12 +19,8 @@ export class MaestroManager {
   private pendingRequests: Map<number, { resolve: (value: any) => void; reject: (error: Error) => void; timeoutId: NodeJS.Timeout }> = new Map();
   private readBuffer = '';
   private isInitialized = false;
-  private lastConnectedDevice: string | null = null;
   private consecutiveErrors = 0;
   private static readonly MAX_CONSECUTIVE_ERRORS = 2;
-
-  // Current target device ID for auto-injection
-  private targetDeviceId: string | null = null;
 
   async initialize(): Promise<void> {
     if (this.isInitialized) {
@@ -36,6 +32,7 @@ export class MaestroManager {
 
     this.process = spawn(maestroPath, ['mcp'], {
       stdio: ['pipe', 'pipe', 'pipe'],
+      detached: true,
     });
 
     this.process.stdout?.setEncoding('utf8');
@@ -94,18 +91,44 @@ export class MaestroManager {
   }
 
   async shutdown(): Promise<void> {
-    if (!this.process) {
+    if (!this.process || !this.process.pid) {
       return;
     }
 
-    this.process.kill('SIGTERM');
-    await sleep(1000);
+    const proc = this.process;
+    const pid = proc.pid!;
 
-    if (this.process) {
-      this.process.kill('SIGKILL');
-    }
+    return new Promise<void>((resolve) => {
+      let settled = false;
+      let forceKillTimeout: NodeJS.Timeout | null = null;
 
-    this.cleanup();
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        if (forceKillTimeout) clearTimeout(forceKillTimeout);
+        this.cleanup();
+        resolve();
+      };
+
+      proc.on('exit', settle);
+
+      // Kill entire process group (negative PID)
+      try {
+        process.kill(-pid, 'SIGTERM');
+      } catch {
+        try { proc.kill('SIGTERM'); } catch { /* ignore */ }
+      }
+
+      // Force kill after 3 seconds if still running
+      forceKillTimeout = global.setTimeout(() => {
+        try {
+          process.kill(-pid, 'SIGKILL');
+        } catch {
+          try { proc.kill('SIGKILL'); } catch { /* ignore */ }
+        }
+        settle();
+      }, 3000);
+    });
   }
 
   /**
@@ -124,31 +147,12 @@ export class MaestroManager {
     return this.isInitialized;
   }
 
+  getPid(): number | null {
+    return this.process?.pid ?? null;
+  }
+
   getTools(): MaestroTool[] {
     return Array.from(this.tools.values());
-  }
-
-  /**
-   * Get the current target device ID
-   */
-  getTargetDeviceId(): string | null {
-    return this.targetDeviceId;
-  }
-
-  /**
-   * Set the target device ID for auto-injection into tool calls
-   */
-  setTargetDeviceId(deviceId: string | null): void {
-    this.targetDeviceId = deviceId;
-  }
-
-  /**
-   * Switch to a different device by updating the target device ID
-   * Note: Maestro MCP doesn't require restart - each tool call takes device_id as argument
-   */
-  async switchDevice(deviceId: string): Promise<void> {
-    console.error(`[Maestro] Switching target device to: ${deviceId}`);
-    this.targetDeviceId = deviceId;
   }
 
   /**
@@ -175,7 +179,7 @@ export class MaestroManager {
   }
 
   /**
-   * Get the first connected device info and auto-set as target
+   * Get the first connected device info
    */
   async getConnectedDevice(): Promise<{ device_id: string; device_name: string; platform: string } | null> {
     if (!this.isInitialized) {
@@ -196,12 +200,6 @@ export class MaestroManager {
       const connected = devices.find((d: any) => d.connected === true);
 
       if (connected) {
-        // Auto-set as target device if not already set
-        if (!this.targetDeviceId) {
-          console.error(`[Maestro] Auto-setting target device: ${connected.device_id}`);
-          this.targetDeviceId = connected.device_id;
-        }
-
         return {
           device_id: connected.device_id,
           device_name: connected.name,

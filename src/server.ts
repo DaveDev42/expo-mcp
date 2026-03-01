@@ -8,6 +8,8 @@ import {
 
 import { ExpoManager } from './managers/expo.js';
 import { MaestroManager } from './managers/maestro.js';
+import { InstanceRegistry } from './registry/instance-registry.js';
+import { cleanupOrphanedMaestroProcesses } from './utils/process-cleanup.js';
 
 import { lifecycleToolSchemas, createLifecycleHandlers } from './tools/lifecycle.js';
 import { createMaestroToolsProxy } from './tools/maestro.js';
@@ -33,11 +35,12 @@ export class McpServer {
   private server: Server;
   private expoManager: ExpoManager;
   private maestroManager: MaestroManager;
+  private registry: InstanceRegistry;
   private lifecycleHandlers: ReturnType<typeof createLifecycleHandlers>;
   private maestroProxy: ReturnType<typeof createMaestroToolsProxy>;
   private toolFilterConfig?: ToolFilterConfig;
 
-  constructor(appDir?: string, toolFilter?: ToolFilterConfig) {
+  constructor(appDir?: string, toolFilter?: ToolFilterConfig, deviceId?: string) {
     this.toolFilterConfig = toolFilter;
     this.server = new Server(
       {
@@ -51,19 +54,32 @@ export class McpServer {
       }
     );
 
-    // Initialize managers
-    this.expoManager = new ExpoManager(appDir);
+    // Clean up orphaned Maestro processes from previous crashes
+    cleanupOrphanedMaestroProcesses();
+
+    // Initialize registry (single source of truth for session state)
+    this.registry = new InstanceRegistry();
+    this.registry.register(appDir ?? process.env.EXPO_APP_DIR ?? process.cwd());
+
+    // If a device ID was specified via CLI, pre-set it in the registry
+    if (deviceId) {
+      this.registry.update({ deviceId });
+    }
+
+    // Initialize managers with registry as SessionStateProvider
+    this.expoManager = new ExpoManager(this.registry, appDir);
     this.maestroManager = new MaestroManager();
 
-    // Create handlers
+    // Create handlers with registry
     this.lifecycleHandlers = createLifecycleHandlers({
       expoManager: this.expoManager,
       maestroManager: this.maestroManager,
+      registry: this.registry,
     });
 
     this.maestroProxy = createMaestroToolsProxy({
       maestroManager: this.maestroManager,
-      expoManager: this.expoManager,
+      registry: this.registry,
     });
 
     this.setupHandlers();
@@ -152,14 +168,8 @@ export class McpServer {
         }
       }
 
-      // Try maestro tool (no prefix needed)
+      // Try maestro tool (init handled by maestroProxy.ensureInitialized)
       try {
-        // Lazy initialize Maestro on first use
-        if (!this.maestroManager.isReady()) {
-          console.error('[expo-mcp] Initializing Maestro MCP on first use...');
-          await this.maestroManager.initialize();
-          console.error('[expo-mcp] Maestro MCP initialized successfully');
-        }
         return await this.maestroProxy.callTool(name, args || {});
       } catch (error: any) {
         // If maestro doesn't have the tool, it's unknown
@@ -200,5 +210,6 @@ export class McpServer {
   async stop() {
     await this.expoManager.stop();
     await this.maestroManager.shutdown();
+    this.registry.deregister();
   }
 }

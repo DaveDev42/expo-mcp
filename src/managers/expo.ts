@@ -3,6 +3,7 @@ import { setTimeout } from 'timers/promises';
 import { networkInterfaces } from 'os';
 import { WebSocket } from 'ws';
 import * as net from 'net';
+import type { SessionStateProvider } from '../registry/session-state.js';
 
 export type ExpoTarget = 'ios-simulator' | 'android-emulator' | 'web-browser';
 export type ExpoHost = 'lan' | 'tunnel' | 'localhost';
@@ -57,6 +58,9 @@ export interface ExpoLaunchOptions {
   wait_for_ready?: boolean;
   /** expo-mcp specific: timeout in seconds */
   timeout_secs?: number;
+
+  /** Registry port-claim check (injected by lifecycle handler) */
+  isPortClaimed?: (port: number) => boolean;
 }
 
 export interface ExpoLaunchResult {
@@ -85,10 +89,20 @@ function isPortAvailable(port: number): Promise<boolean> {
 
 /**
  * Find an available port starting from the given port
+ * @param isPortClaimed Optional callback to check if a port is claimed by another instance
  */
-async function findAvailablePort(startPort: number, maxAttempts: number = 10): Promise<number> {
+async function findAvailablePort(
+  startPort: number,
+  maxAttempts: number = 10,
+  isPortClaimed?: (port: number) => boolean,
+): Promise<number> {
   for (let i = 0; i < maxAttempts; i++) {
     const port = startPort + i;
+    // Check registry first (another expo-mcp instance may have claimed it)
+    if (isPortClaimed && isPortClaimed(port)) {
+      continue;
+    }
+    // Then check TCP availability (non-expo-mcp processes)
     if (await isPortAvailable(port)) {
       return port;
     }
@@ -114,13 +128,10 @@ function getLanIP(): string {
 
 export class ExpoManager {
   private process: ChildProcess | null = null;
-  private port: number = 8081;
-  private target: ExpoTarget | null = null;
-  private host: ExpoHost = 'lan';
   private appDir: string;
   private logBuffer: LogEntry[] = [];
   private maxLogLines: number;
-  private deviceId: string | null = null;
+  private sessionState: SessionStateProvider;
   private static readonly EXPO_GO_MIN_STORAGE_MB = 300; // Expo Go APK is ~186MB, need extra for extraction
   private static readonly LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
     log: 0,
@@ -129,7 +140,8 @@ export class ExpoManager {
     error: 3,
   };
 
-  constructor(appDir?: string) {
+  constructor(sessionState: SessionStateProvider, appDir?: string) {
+    this.sessionState = sessionState;
     this.appDir = appDir ?? process.env.EXPO_APP_DIR ?? process.cwd();
     this.maxLogLines = parseInt(process.env.LOG_BUFFER_SIZE || '400', 10);
   }
@@ -283,8 +295,9 @@ export class ExpoManager {
 
   /** iOS 시뮬레이터에 Expo Go 설치 여부 확인 */
   private isExpoGoInstalledIOS(): boolean {
+    const deviceId = this.sessionState.getSessionState().deviceId ?? 'booted';
     try {
-      const output = execSync('xcrun simctl listapps booted', {
+      const output = execSync(`xcrun simctl listapps ${deviceId}`, {
         encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
       });
       return output.includes('host.exp.Exponent');
@@ -293,8 +306,10 @@ export class ExpoManager {
 
   /** Android 에뮬레이터에 Expo Go 설치 여부 확인 */
   private isExpoGoInstalledAndroid(adbPath: string): boolean {
+    const deviceId = this.sessionState.getSessionState().deviceId;
+    const deviceFlag = deviceId ? `-s ${deviceId} ` : '';
     try {
-      const output = execSync(`${adbPath} shell pm list packages host.exp.exponent`, {
+      const output = execSync(`${adbPath} ${deviceFlag}shell pm list packages host.exp.exponent`, {
         encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
       });
       return output.includes('host.exp.exponent');
@@ -303,10 +318,11 @@ export class ExpoManager {
 
   /** iOS 시뮬레이터 상태 정리 (키체인 리셋, Expo Go 종료) */
   private cleanIOSSimulatorState(): void {
+    const deviceId = this.sessionState.getSessionState().deviceId ?? 'booted';
     console.error('[Expo] Cleaning iOS simulator state...');
     for (const cmd of [
-      'xcrun simctl keychain booted reset',
-      'xcrun simctl terminate booted host.exp.Exponent',
+      `xcrun simctl keychain ${deviceId} reset`,
+      `xcrun simctl terminate ${deviceId} host.exp.Exponent`,
     ]) {
       try { execSync(cmd, { stdio: 'pipe', timeout: 10000 }); }
       catch { /* skip */ }
@@ -315,16 +331,19 @@ export class ExpoManager {
 
   /** Android 에뮬레이터 상태 정리 (Expo Go 앱 데이터 초기화) */
   private cleanAndroidEmulatorState(adbPath: string): void {
+    const deviceId = this.sessionState.getSessionState().deviceId;
+    const deviceFlag = deviceId ? `-s ${deviceId} ` : '';
     console.error('[Expo] Cleaning Android emulator state...');
-    try { execSync(`${adbPath} shell pm clear host.exp.exponent`, { stdio: 'pipe', timeout: 10000 }); }
+    try { execSync(`${adbPath} ${deviceFlag}shell pm clear host.exp.exponent`, { stdio: 'pipe', timeout: 10000 }); }
     catch { /* skip */ }
   }
 
   /** iOS dev menu onboarding 억제 (UserDefaults 설정) */
   suppressDevMenuOnboardingIOS(): void {
+    const deviceId = this.sessionState.getSessionState().deviceId ?? 'booted';
     try {
       execSync(
-        'xcrun simctl spawn booted defaults write host.exp.Exponent EXDevMenuIsOnboardingFinished -bool true',
+        `xcrun simctl spawn ${deviceId} defaults write host.exp.Exponent EXDevMenuIsOnboardingFinished -bool true`,
         { stdio: 'pipe', timeout: 10000 }
       );
       console.error('[Expo] iOS dev menu onboarding suppressed');
@@ -337,8 +356,10 @@ export class ExpoManager {
   suppressDevMenuOnboardingAndroid(): void {
     const adbPath = this.getAdbPath();
     if (!adbPath) return;
+    const deviceId = this.sessionState.getSessionState().deviceId;
+    const deviceFlag = deviceId ? `-s ${deviceId} ` : '';
     try {
-      execSync(`${adbPath} shell am broadcast -a expo.modules.devmenu.DISABLE_ONBOARDING`,
+      execSync(`${adbPath} ${deviceFlag}shell am broadcast -a expo.modules.devmenu.DISABLE_ONBOARDING`,
         { stdio: 'pipe', timeout: 10000 });
       console.error('[Expo] Android dev menu onboarding suppressed');
     } catch (e: any) {
@@ -348,8 +369,9 @@ export class ExpoManager {
 
   /** 현재 타겟에 맞게 onboarding 억제 */
   suppressDevMenuOnboarding(): void {
-    if (this.target === 'ios-simulator') this.suppressDevMenuOnboardingIOS();
-    else if (this.target === 'android-emulator') this.suppressDevMenuOnboardingAndroid();
+    const target = this.sessionState.getSessionState().target;
+    if (target === 'ios-simulator') this.suppressDevMenuOnboardingIOS();
+    else if (target === 'android-emulator') this.suppressDevMenuOnboardingAndroid();
   }
 
   /** Metro 번들링 완료 대기 (로그 버퍼 감시) */
@@ -382,7 +404,7 @@ export class ExpoManager {
     }
 
     // Find an available port (auto-increment if requested port is in use)
-    const port = await findAvailablePort(requestedPort);
+    const port = await findAvailablePort(requestedPort, 10, options.isPortClaimed);
     if (port !== requestedPort) {
       console.error(`[Expo] Port ${requestedPort} in use, using port ${port} instead`);
     }
@@ -418,8 +440,7 @@ export class ExpoManager {
       }
     }
 
-    this.port = port;
-    this.target = target;
+    // port and target are written to registry by the lifecycle handler
 
     // Build command arguments: npx expo start [options]
     const args = ['expo', 'start', '--port', port.toString()];
@@ -450,7 +471,7 @@ export class ExpoManager {
       // Everything else defaults to lan
       effectiveHost = 'lan';
     }
-    this.host = effectiveHost;
+    // effectiveHost is used in the return value below
 
     // Enable offline mode by default in MCP environment
     // This skips Expo server authentication (manifest signing) which requires EXPO_TOKEN
@@ -582,9 +603,6 @@ export class ExpoManager {
           forceKillTimeout = null;
         }
         this.process = null;
-        this.target = null;
-        this.host = 'lan';
-        this.deviceId = null;
         resolve();
       };
 
@@ -629,28 +647,25 @@ export class ExpoManager {
     return this.process ? 'running' : 'stopped';
   }
 
-  getPort(): number {
-    return this.port;
+  getPort(): number | null {
+    return this.sessionState.getSessionState().port;
   }
 
   getTarget(): ExpoTarget | null {
-    return this.target;
+    return this.sessionState.getSessionState().target;
   }
 
   getHost(): ExpoHost {
-    return this.host;
+    return this.sessionState.getSessionState().host;
   }
 
   getDeviceId(): string | null {
-    return this.deviceId;
-  }
-
-  setDeviceId(deviceId: string): void {
-    this.deviceId = deviceId;
+    return this.sessionState.getSessionState().deviceId;
   }
 
   hasActiveSession(): boolean {
-    return this.process !== null && this.deviceId !== null;
+    const s = this.sessionState.getSessionState();
+    return s.status === 'running' && s.deviceId !== null;
   }
 
   /**
@@ -659,6 +674,11 @@ export class ExpoManager {
   async reload(): Promise<void> {
     if (!this.process) {
       throw new Error('Expo server is not running');
+    }
+
+    const port = this.sessionState.getSessionState().port;
+    if (!port) {
+      throw new Error('No port available for reload');
     }
 
     // Check for recent errors in log buffer that might indicate problems
@@ -671,7 +691,7 @@ export class ExpoManager {
     }
 
     // Send reload via WebSocket /message endpoint
-    const wsUrl = `ws://localhost:${this.port}/message`;
+    const wsUrl = `ws://localhost:${port}/message`;
 
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(wsUrl);

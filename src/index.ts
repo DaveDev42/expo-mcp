@@ -13,6 +13,7 @@ Arguments:
 Options:
   --exclude-tools=tool1,tool2  Exclude specific tools from the MCP server
   --tools=tool1,tool2          Only expose specific tools (mutually exclusive with --exclude-tools)
+  --device-id=<id>             Specific device to use (iOS simulator UUID or Android serial)
   -h, --help                   Show this help message
   -v, --version                Show version number
 
@@ -25,13 +26,16 @@ Examples:
   expo-mcp                                        Use current directory
   expo-mcp apps/mobile                            Monorepo subdirectory
   expo-mcp --exclude-tools=list_devices            Exclude specific tools
-  expo-mcp apps/mobile --exclude-tools=list_devices Combined usage`);
+  expo-mcp apps/mobile --exclude-tools=list_devices Combined usage
+  expo-mcp apps/mobile --device-id=emulator-5554   Use specific Android emulator
+  expo-mcp apps/mobile --device-id=6D192F60-...    Use specific iOS simulator`);
 }
 
 const args = process.argv.slice(2);
 let appDir: string | undefined;
 let essentialTools: string | undefined;
 let excludeTools: string | undefined;
+let deviceId: string | undefined;
 
 for (const arg of args) {
   if (arg === '--help' || arg === '-h') {
@@ -44,6 +48,8 @@ for (const arg of args) {
     excludeTools = arg.slice('--exclude-tools='.length);
   } else if (arg.startsWith('--tools=')) {
     essentialTools = arg.slice('--tools='.length);
+  } else if (arg.startsWith('--device-id=')) {
+    deviceId = arg.slice('--device-id='.length);
   } else if (arg.startsWith('-')) {
     console.error(`Unknown option: ${arg}`);
     process.exit(1);
@@ -65,7 +71,7 @@ if (resolvedEssentialTools && resolvedExcludeTools) {
 const server = new McpServer(resolvedAppDir, {
   essentialTools: resolvedEssentialTools,
   excludeTools: resolvedExcludeTools,
-});
+}, deviceId);
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
