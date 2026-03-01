@@ -4,7 +4,9 @@ MCP server for Expo/React Native app automation with Maestro integration.
 
 ## Features
 
-- **Session-Based Architecture**: Launch Expo and device binds automatically - no manual device ID management
+- **Session-Based Architecture**: `start_session` launches Expo, binds a device, and acquires a lease — no manual device ID management
+- **Device Lease with TTL**: 2-minute lease auto-renewed on every device tool call; expires after inactivity so other instances can use the device
+- **Cross-Instance Coordination**: Multiple MCP instances can run simultaneously without device conflicts
 - **Expo Dev Server Management**: Start/stop/reload Expo development server
 - **Maestro Integration**: Full UI automation tools (tap, input, screenshot, etc.)
 
@@ -50,6 +52,21 @@ Use a positional argument to specify the app directory:
 }
 ```
 
+### Specific Device
+
+Pin a specific simulator or emulator with `--device-id`:
+
+```json
+{
+  "mcpServers": {
+    "expo-mcp": {
+      "command": "npx",
+      "args": ["-y", "expo-mcp", "--device-id=6D192F60-1234-5678-ABCD-000000000000"]
+    }
+  }
+}
+```
+
 ### Tool Filtering
 
 Exclude specific tools with `--exclude-tools`:
@@ -72,7 +89,7 @@ Or expose only specific tools with `--tools`:
   "mcpServers": {
     "expo-mcp": {
       "command": "npx",
-      "args": ["-y", "expo-mcp", "--tools=launch_expo,stop_expo,take_screenshot"]
+      "args": ["-y", "expo-mcp", "--tools=start_session,stop_session,take_screenshot"]
     }
   }
 }
@@ -87,6 +104,7 @@ Arguments:
   app-dir                      Path to Expo app directory (default: cwd)
 
 Options:
+  --device-id=<id>             Specific device to use (iOS simulator UUID or Android serial)
   --exclude-tools=tool1,tool2  Exclude specific tools from the MCP server
   --tools=tool1,tool2          Only expose specific tools
   -h, --help                   Show help message
@@ -96,8 +114,8 @@ Options:
 ## Quick Start
 
 ```
-# 1. Start session (launches Expo + binds device automatically)
-launch_expo({ target: "ios-simulator" })
+# 1. Start session (launches Expo + binds device + acquires lease)
+start_session({ target: "ios-simulator" })
 
 # 2. Use Maestro tools directly (no device_id needed!)
 take_screenshot()
@@ -105,13 +123,13 @@ tap_on({ text: "Login" })
 input_text({ text: "hello@example.com" })
 
 # 3. Reload app after code changes
-reload_expo()
+reload_app()
 
 # 4. Check logs if needed
 get_logs({ level: "error" })
 
 # 5. Stop session when done
-stop_expo()
+stop_session()
 ```
 
 ## Tools
@@ -120,38 +138,58 @@ stop_expo()
 
 | Tool | Description |
 |------|-------------|
-| `app_status` | Get session status (server info, device_id) |
-| `launch_expo` | Start Expo server and establish session with device |
-| `stop_expo` | Stop Expo server and end session |
-| `reload_expo` | Hot reload the app on connected device |
-| `get_logs` | Get Metro bundler logs (filterable by level) |
+| `get_session_status` | Get session status (server state, device info, lease remaining time) |
+| `start_session` | Start Expo server, connect device, and acquire device lease |
+| `stop_session` | Stop Expo server and release all resources |
+| `reload_app` | Hot reload the app on connected device |
+| `get_logs` | Get Metro bundler logs (filterable by level and source) |
 
-#### launch_expo Options
+#### start_session Options
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `target` | `ios-simulator` \| `android-emulator` \| `web-browser` | Device to launch |
+| `target` | `ios-simulator` \| `android-emulator` \| `web-browser` | Target platform to launch |
+| `device_id` | string | Specific device (iOS UUID or Android serial). Auto-detected if omitted |
 | `host` | `lan` \| `tunnel` \| `localhost` | Connection mode |
 | `port` | number | Server port (default: 8081, auto-increments if busy) |
 | `clear` | boolean | Clear Metro bundler cache |
 | `dev` | boolean | Development mode (default: true) |
+| `minify` | boolean | Minify JavaScript |
+| `max_workers` | number | Max Metro workers |
+| `offline` | boolean | Offline mode |
+| `scheme` | string | Custom URI scheme |
+| `simulator_name` | string | iOS simulator name (e.g., "iPhone 16 Pro") |
+| `clean_state` | boolean | Clean simulator state before launch (default: false) |
+| `auto_login` | object | Run a Maestro flow after app loads (`{ flow_file: "path/to/flow.yaml" }`) |
 
 ### Maestro Tools
 
-All Maestro tools work automatically once a session is active:
+All Maestro tools work automatically once a session is active — `device_id` is injected from the session:
 
 | Tool | Description |
 |------|-------------|
-| `tap_on` | Tap on UI element by text, id, or point |
+| `take_screenshot` | Capture screen (auto-resized for LLM context) |
+| `tap_on` | Tap on UI element by text, id, or coordinates |
 | `input_text` | Type text into focused field |
-| `take_screenshot` | Capture screen (auto-resized for LLM) |
-| `inspect_view_hierarchy` | Get UI element tree |
-| `launch_app` | Launch app by bundle ID |
 | `back` | Press back button |
-| `run_flow` | Run Maestro YAML flow |
+| `run_flow` | Run Maestro YAML flow inline |
 | `run_flow_files` | Run Maestro flow files from project directory |
+| `inspect_view_hierarchy` | Get UI element tree of the current screen |
+| `list_devices` | List all available devices (works without an active session) |
 
-> **Note**: Maestro tools require an active session. Call `launch_expo` first.
+> **Note**: Device tools require an active session. Call `start_session` first.
+
+## Device Lease System
+
+The device lease prevents one MCP instance from holding a device indefinitely:
+
+1. **Acquire**: `start_session` acquires a 2-minute device lease
+2. **Auto-Renew**: Every device tool call (`take_screenshot`, `tap_on`, etc.) resets the 2-minute timer
+3. **Expire**: If no device tool is called for 2 minutes, the lease expires and the device becomes available
+4. **Re-acquire**: Call `start_session` again to re-acquire (server stays running, no restart needed)
+5. **Check**: `get_session_status` shows remaining lease time
+
+Multiple MCP instances coordinate via a file-based registry (`/tmp/expo-mcp/instances/`), so two instances cannot claim the same device simultaneously.
 
 ## Environment Variables
 
@@ -162,16 +200,15 @@ All Maestro tools work automatically once a session is active:
 | `ESSENTIAL_TOOLS` | Comma-separated list of tools to expose (`--tools` takes precedence) | All tools |
 | `EXCLUDE_TOOLS` | Comma-separated list of tools to exclude (`--exclude-tools` takes precedence) | None |
 | `LOG_BUFFER_SIZE` | Max log lines to keep in memory | 400 |
-| `EXPO_TOKEN` | Expo authentication token (optional, only needed if offline mode is disabled) | None |
+| `EXPO_TOKEN` | Expo authentication token (only needed if offline mode is disabled) | None |
 
 ## How It Works
 
-1. **Session Creation**: `launch_expo` starts Expo dev server and waits for device connection
-2. **Device Binding**: Once device connects, its ID is stored in the session
-3. **Automatic Injection**: All Maestro tools automatically use the session's device ID
-4. **Session End**: `stop_expo` cleans up everything
-
-This eliminates the need for manual `device_id` management.
+1. **Session Start**: `start_session` starts Expo dev server, waits for device connection, and acquires a lease
+2. **Device Binding**: Connected device ID is stored in the session with a 2-minute TTL
+3. **Automatic Injection**: All Maestro device tools automatically use the session's device ID
+4. **Lease Renewal**: Every device tool call resets the lease timer
+5. **Session End**: `stop_session` cleans up everything, or the lease expires after inactivity
 
 ## Non-Interactive Environments (CI/CD, AI Agents)
 
@@ -199,10 +236,10 @@ For features requiring Expo authentication, disable offline mode and provide `EX
 }
 ```
 
-Then call `launch_expo` with `offline: false`:
+Then call `start_session` with `offline: false`:
 
 ```javascript
-launch_expo({ target: "ios-simulator", offline: false })
+start_session({ target: "ios-simulator", offline: false })
 ```
 
 ## Requirements
