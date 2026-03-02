@@ -117,18 +117,25 @@ Options:
 # 1. Start session (launches Expo + binds device + acquires lease)
 start_session({ target: "ios-simulator" })
 
-# 2. Use Maestro tools directly (no device_id needed!)
+# 2. Use tools directly (no device_id needed!)
 take_screenshot()
 tap_on({ text: "Login" })
 input_text({ text: "hello@example.com" })
+press_key({ key: "Enter" })
+scroll({ direction: "down" })
+swipe({ direction: "left" })
 
-# 3. Reload app after code changes
+# 3. Run Maestro flows
+run_maestro_flow({ flow_yaml: "- assertVisible: Welcome" })
+check_maestro_flow_syntax({ flow_yaml: "- tap: Login" })
+
+# 4. Reload app after code changes
 reload_app()
 
-# 4. Check logs if needed
+# 5. Check logs if needed
 get_logs({ level: "error" })
 
-# 5. Stop session when done
+# 6. Stop session when done
 stop_session()
 ```
 
@@ -143,6 +150,9 @@ stop_session()
 | `stop_session` | Stop Expo server and release all resources |
 | `reload_app` | Hot reload the app on connected device |
 | `get_logs` | Get Metro bundler logs (filterable by level and source) |
+| `press_key` | Press a key (Enter, Backspace, Home, Lock, Tab, Volume Up/Down) |
+| `scroll` | Scroll the screen in a direction (default: down) |
+| `swipe` | Swipe by direction or precise start/end coordinates |
 
 #### start_session Options
 
@@ -172,12 +182,13 @@ All Maestro tools work automatically once a session is active — `device_id` is
 | `tap_on` | Tap on UI element by text, id, or coordinates |
 | `input_text` | Type text into focused field |
 | `back` | Press back button |
-| `run_flow` | Run Maestro YAML flow inline |
-| `run_flow_files` | Run Maestro flow files from project directory |
+| `run_maestro_flow` | Run Maestro YAML flow inline |
+| `run_maestro_flow_files` | Run Maestro flow files from project directory |
+| `check_maestro_flow_syntax` | Validate Maestro YAML flow syntax without running it |
 | `inspect_view_hierarchy` | Get UI element tree of the current screen |
 | `list_devices` | List all available devices (works without an active session) |
 
-> **Note**: Device tools require an active session. Call `start_session` first.
+> **Note**: Device tools require an active session. Call `start_session` first. `list_devices` and `check_maestro_flow_syntax` can be called anytime.
 
 ## Device Lease System
 
