@@ -6,6 +6,24 @@ import { InstanceRegistry } from '../registry/instance-registry.js';
 /** Device lease TTL — auto-renewed on every tool call that uses the device */
 const DEFAULT_LEASE_TTL_MS = 2 * 60_000; // 2 minutes
 
+/** Validate that a native device session is running and return its device ID. */
+function requireNativeDevice(
+  registry: InstanceRegistry,
+  toolName: string
+): { deviceId: string } {
+  const state = registry.getSessionState();
+  if (state.status !== 'running') {
+    throw new Error('Session is not running. Call start_session first.');
+  }
+  if (state.target === 'web-browser') {
+    throw new Error(`"${toolName}" requires a native device.`);
+  }
+  if (!state.deviceId) {
+    throw new Error('Device lease expired. Call start_session to re-acquire.');
+  }
+  return { deviceId: state.deviceId };
+}
+
 export interface LifecycleTools {
   expoManager: ExpoManager;
   maestroManager: MaestroManager;
@@ -98,6 +116,52 @@ export const lifecycleToolSchemas = {
         .optional()
         .describe('Filter by minimum log level (log < info < warn < error)'),
       source: z.enum(['stdout', 'stderr']).optional().describe('Filter by output source'),
+    }),
+  },
+  press_key: {
+    name: 'press_key',
+    description:
+      'Press a key on the device. For text input use input_text instead. ' +
+      'Requires: start_session must be called first.',
+    inputSchema: z.object({
+      key: z
+        .enum(['Enter', 'Backspace', 'Home', 'Lock', 'Tab', 'Volume Up', 'Volume Down'])
+        .describe('The key to press'),
+    }),
+  },
+  scroll: {
+    name: 'scroll',
+    description:
+      'Scroll the screen. Requires: start_session must be called first.',
+    inputSchema: z.object({
+      direction: z
+        .enum(['up', 'down', 'left', 'right'])
+        .optional()
+        .describe('Scroll direction (default: down)'),
+    }),
+  },
+  swipe: {
+    name: 'swipe',
+    description:
+      'Swipe on the screen. Use direction for simple swipes, or start+end for precise control. ' +
+      'Requires: start_session must be called first.',
+    inputSchema: z.object({
+      direction: z
+        .enum(['up', 'down', 'left', 'right'])
+        .optional()
+        .describe('Swipe direction (simple mode)'),
+      start: z
+        .string()
+        .optional()
+        .describe('Start point "x%,y%" (precise mode, use with end)'),
+      end: z
+        .string()
+        .optional()
+        .describe('End point "x%,y%" (precise mode, use with start)'),
+      duration: z.coerce
+        .number()
+        .optional()
+        .describe('Duration in ms (default: 400)'),
     }),
   },
 };
@@ -418,6 +482,59 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
           },
         ],
       };
+    },
+
+    async press_key(args: z.infer<typeof lifecycleToolSchemas.press_key.inputSchema>) {
+      const { deviceId } = requireNativeDevice(registry, 'press_key');
+      const flowYaml = `- pressKey: ${args.key}`;
+      const result = await managers.maestroManager.callTool('run_flow', {
+        flow_yaml: flowYaml,
+        device_id: deviceId,
+      });
+      registry.touchLease();
+      return result;
+    },
+
+    async scroll(args: z.infer<typeof lifecycleToolSchemas.scroll.inputSchema>) {
+      const { deviceId } = requireNativeDevice(registry, 'scroll');
+      const direction = args.direction?.toUpperCase();
+      const flowYaml = direction ? `- scroll:\n    direction: ${direction}` : '- scroll';
+      const result = await managers.maestroManager.callTool('run_flow', {
+        flow_yaml: flowYaml,
+        device_id: deviceId,
+      });
+      registry.touchLease();
+      return result;
+    },
+
+    async swipe(args: z.infer<typeof lifecycleToolSchemas.swipe.inputSchema>) {
+      const { deviceId } = requireNativeDevice(registry, 'swipe');
+
+      let flowYaml: string;
+      if (args.start && args.end) {
+        // Precise mode with start/end points
+        let yaml = `- swipe:\n    start: "${args.start}"\n    end: "${args.end}"`;
+        if (args.duration) {
+          yaml += `\n    duration: ${args.duration}`;
+        }
+        flowYaml = yaml;
+      } else if (args.direction) {
+        // Simple direction mode
+        let yaml = `- swipe:\n    direction: ${args.direction.toUpperCase()}`;
+        if (args.duration) {
+          yaml += `\n    duration: ${args.duration}`;
+        }
+        flowYaml = yaml;
+      } else {
+        throw new Error('Either "direction" or both "start" and "end" must be provided.');
+      }
+
+      const result = await managers.maestroManager.callTool('run_flow', {
+        flow_yaml: flowYaml,
+        device_id: deviceId,
+      });
+      registry.touchLease();
+      return result;
     },
   };
 }

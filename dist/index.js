@@ -1129,6 +1129,19 @@ function cleanupOrphanedMaestroProcesses() {
 // src/tools/lifecycle.ts
 import { z } from "zod";
 var DEFAULT_LEASE_TTL_MS = 2 * 6e4;
+function requireNativeDevice(registry, toolName) {
+  const state = registry.getSessionState();
+  if (state.status !== "running") {
+    throw new Error("Session is not running. Call start_session first.");
+  }
+  if (state.target === "web-browser") {
+    throw new Error(`"${toolName}" requires a native device.`);
+  }
+  if (!state.deviceId) {
+    throw new Error("Device lease expired. Call start_session to re-acquire.");
+  }
+  return { deviceId: state.deviceId };
+}
 var lifecycleToolSchemas = {
   get_session_status: {
     name: "get_session_status",
@@ -1181,6 +1194,30 @@ var lifecycleToolSchemas = {
       clear: z.coerce.boolean().optional().describe("Clear the log buffer after reading (default: false)"),
       level: z.enum(["log", "info", "warn", "error"]).optional().describe("Filter by minimum log level (log < info < warn < error)"),
       source: z.enum(["stdout", "stderr"]).optional().describe("Filter by output source")
+    })
+  },
+  press_key: {
+    name: "press_key",
+    description: "Press a key on the device. For text input use input_text instead. Requires: start_session must be called first.",
+    inputSchema: z.object({
+      key: z.enum(["Enter", "Backspace", "Home", "Lock", "Tab", "Volume Up", "Volume Down"]).describe("The key to press")
+    })
+  },
+  scroll: {
+    name: "scroll",
+    description: "Scroll the screen. Requires: start_session must be called first.",
+    inputSchema: z.object({
+      direction: z.enum(["up", "down", "left", "right"]).optional().describe("Scroll direction (default: down)")
+    })
+  },
+  swipe: {
+    name: "swipe",
+    description: "Swipe on the screen. Use direction for simple swipes, or start+end for precise control. Requires: start_session must be called first.",
+    inputSchema: z.object({
+      direction: z.enum(["up", "down", "left", "right"]).optional().describe("Swipe direction (simple mode)"),
+      start: z.string().optional().describe('Start point "x%,y%" (precise mode, use with end)'),
+      end: z.string().optional().describe('End point "x%,y%" (precise mode, use with start)'),
+      duration: z.coerce.number().optional().describe("Duration in ms (default: 400)")
     })
   }
 };
@@ -1445,6 +1482,58 @@ function createLifecycleHandlers(managers) {
           }
         ]
       };
+    },
+    async press_key(args2) {
+      const { deviceId: deviceId2 } = requireNativeDevice(registry, "press_key");
+      const flowYaml = `- pressKey: ${args2.key}`;
+      const result = await managers.maestroManager.callTool("run_flow", {
+        flow_yaml: flowYaml,
+        device_id: deviceId2
+      });
+      registry.touchLease();
+      return result;
+    },
+    async scroll(args2) {
+      const { deviceId: deviceId2 } = requireNativeDevice(registry, "scroll");
+      const direction = args2.direction?.toUpperCase();
+      const flowYaml = direction ? `- scroll:
+    direction: ${direction}` : "- scroll";
+      const result = await managers.maestroManager.callTool("run_flow", {
+        flow_yaml: flowYaml,
+        device_id: deviceId2
+      });
+      registry.touchLease();
+      return result;
+    },
+    async swipe(args2) {
+      const { deviceId: deviceId2 } = requireNativeDevice(registry, "swipe");
+      let flowYaml;
+      if (args2.start && args2.end) {
+        let yaml = `- swipe:
+    start: "${args2.start}"
+    end: "${args2.end}"`;
+        if (args2.duration) {
+          yaml += `
+    duration: ${args2.duration}`;
+        }
+        flowYaml = yaml;
+      } else if (args2.direction) {
+        let yaml = `- swipe:
+    direction: ${args2.direction.toUpperCase()}`;
+        if (args2.duration) {
+          yaml += `
+    duration: ${args2.duration}`;
+        }
+        flowYaml = yaml;
+      } else {
+        throw new Error('Either "direction" or both "start" and "end" must be provided.');
+      }
+      const result = await managers.maestroManager.callTool("run_flow", {
+        flow_yaml: flowYaml,
+        device_id: deviceId2
+      });
+      registry.touchLease();
+      return result;
     }
   };
 }
@@ -1557,21 +1646,41 @@ var DEVICE_REQUIRED_TOOLS = [
   "tap_on",
   "input_text",
   "back",
-  "run_flow",
-  "run_flow_files",
+  "run_maestro_flow",
+  "run_maestro_flow_files",
   "inspect_view_hierarchy"
 ];
-var HIDDEN_TOOLS = ["launch_app", "stop_app"];
+var HIDDEN_TOOLS = ["launch_app", "stop_app", "start_device", "cheat_sheet", "query_docs"];
 var REQUIRES_SESSION = "Requires: start_session must be called first.";
+var TOOL_RENAME_MAP = {
+  run_flow: "run_maestro_flow",
+  run_flow_files: "run_maestro_flow_files",
+  check_flow_syntax: "check_maestro_flow_syntax"
+};
+var REVERSE_RENAME_MAP = Object.fromEntries(
+  Object.entries(TOOL_RENAME_MAP).map(([k, v]) => [v, k])
+);
+var TOOL_DESCRIPTION_ENHANCEMENTS = {
+  take_screenshot: REQUIRES_SESSION,
+  tap_on: REQUIRES_SESSION,
+  input_text: REQUIRES_SESSION,
+  back: REQUIRES_SESSION,
+  run_maestro_flow: REQUIRES_SESSION,
+  run_maestro_flow_files: REQUIRES_SESSION,
+  inspect_view_hierarchy: REQUIRES_SESSION,
+  list_devices: "Can be called without an active session.",
+  check_maestro_flow_syntax: "Can be called without an active session."
+};
 var FALLBACK_MAESTRO_TOOLS = [
   { name: "take_screenshot", description: `Take a screenshot of the device screen. ${REQUIRES_SESSION}`, inputSchema: { type: "object", properties: {} } },
   { name: "tap_on", description: `Tap on a UI element by text, id, or coordinates. ${REQUIRES_SESSION}`, inputSchema: { type: "object", properties: { text: { type: "string", description: "Text of element to tap" }, id: { type: "string", description: "Accessibility ID of element to tap" }, point: { type: "string", description: 'Coordinates to tap (e.g. "50%,50%")' } } } },
   { name: "input_text", description: `Type text into the currently focused field. ${REQUIRES_SESSION}`, inputSchema: { type: "object", properties: { text: { type: "string", description: "Text to input" } }, required: ["text"] } },
   { name: "back", description: `Press the back button. ${REQUIRES_SESSION}`, inputSchema: { type: "object", properties: {} } },
-  { name: "run_flow", description: `Run a Maestro YAML flow. ${REQUIRES_SESSION}`, inputSchema: { type: "object", properties: { yaml: { type: "string", description: "YAML flow content" } }, required: ["yaml"] } },
-  { name: "run_flow_files", description: `Run Maestro flow files from the project directory. ${REQUIRES_SESSION}`, inputSchema: { type: "object", properties: { paths: { type: "array", items: { type: "string" }, description: "Paths to Maestro flow files" } }, required: ["paths"] } },
+  { name: "run_maestro_flow", description: `Run a Maestro YAML flow. ${REQUIRES_SESSION}`, inputSchema: { type: "object", properties: { flow_yaml: { type: "string", description: "YAML flow content" } }, required: ["flow_yaml"] } },
+  { name: "run_maestro_flow_files", description: `Run Maestro flow files from the project directory. ${REQUIRES_SESSION}`, inputSchema: { type: "object", properties: { paths: { type: "array", items: { type: "string" }, description: "Paths to Maestro flow files" } }, required: ["paths"] } },
+  { name: "check_maestro_flow_syntax", description: `Validate Maestro YAML flow syntax without running it. Can be called without an active session.`, inputSchema: { type: "object", properties: { flow_yaml: { type: "string", description: "YAML flow content to validate" } }, required: ["flow_yaml"] } },
   { name: "inspect_view_hierarchy", description: `Get the UI element tree of the current screen. ${REQUIRES_SESSION}`, inputSchema: { type: "object", properties: {} } },
-  { name: "list_devices", description: "List all available devices (simulators and emulators). Can be called anytime.", inputSchema: { type: "object", properties: {} } }
+  { name: "list_devices", description: "List all available devices (simulators and emulators). Can be called without an active session.", inputSchema: { type: "object", properties: {} } }
 ];
 function createMaestroToolsProxy(managers) {
   async function ensureInitialized() {
@@ -1591,7 +1700,7 @@ function createMaestroToolsProxy(managers) {
         return FALLBACK_MAESTRO_TOOLS;
       }
       const tools = managers.maestroManager.getTools();
-      return tools.filter((tool) => !HIDDEN_TOOLS.includes(tool.name)).map((tool) => {
+      return tools.filter((tool) => !HIDDEN_TOOLS.includes(tool.name)).map((tool) => ({ ...tool, name: TOOL_RENAME_MAP[tool.name] ?? tool.name })).map((tool) => {
         if (DEVICE_REQUIRED_TOOLS.includes(tool.name)) {
           const schema = { ...tool.inputSchema };
           if (schema.properties) {
@@ -1604,10 +1713,17 @@ function createMaestroToolsProxy(managers) {
           return { ...tool, inputSchema: schema };
         }
         return tool;
+      }).map((tool) => {
+        const enhancement = TOOL_DESCRIPTION_ENHANCEMENTS[tool.name];
+        if (enhancement && !tool.description.includes(enhancement)) {
+          return { ...tool, description: `${tool.description} ${enhancement}` };
+        }
+        return tool;
       });
     },
     async callTool(name, args2) {
-      if (HIDDEN_TOOLS.includes(name)) {
+      const maestroName = REVERSE_RENAME_MAP[name] ?? name;
+      if (HIDDEN_TOOLS.includes(maestroName)) {
         throw new Error(`Unknown tool: ${name}`);
       }
       await ensureInitialized();
@@ -1631,7 +1747,7 @@ function createMaestroToolsProxy(managers) {
         }
         enhancedArgs = { ...args2, device_id: state.deviceId };
       }
-      const result = await managers.maestroManager.callTool(name, enhancedArgs);
+      const result = await managers.maestroManager.callTool(maestroName, enhancedArgs);
       if (DEVICE_REQUIRED_TOOLS.includes(name)) {
         managers.registry.touchLease();
       }
