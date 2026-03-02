@@ -515,7 +515,14 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
     async scroll(args: z.infer<typeof lifecycleToolSchemas.scroll.inputSchema>) {
       const { deviceId } = requireNativeDevice(registry, 'scroll');
       const direction = args.direction?.toUpperCase();
-      const commands = direction ? `- scroll:\n    direction: ${direction}` : '- scroll';
+      // Maestro 2.2.0: `scroll` has no direction property.
+      // Use `- scroll` for default (down), use `swipe` for other directions.
+      let commands: string;
+      if (!direction || direction === 'DOWN') {
+        commands = '- scroll';
+      } else {
+        commands = `- swipe:\n    direction: ${direction}`;
+      }
       const flowYaml = `appId: any\n---\n${commands}`;
       const result = await managers.maestroManager.callTool('run_flow', {
         flow_yaml: flowYaml,

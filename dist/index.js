@@ -1593,8 +1593,13 @@ function createLifecycleHandlers(managers) {
     async scroll(args2) {
       const { deviceId: deviceId2 } = requireNativeDevice(registry, "scroll");
       const direction = args2.direction?.toUpperCase();
-      const commands = direction ? `- scroll:
-    direction: ${direction}` : "- scroll";
+      let commands;
+      if (!direction || direction === "DOWN") {
+        commands = "- scroll";
+      } else {
+        commands = `- swipe:
+    direction: ${direction}`;
+      }
       const flowYaml = `appId: any
 ---
 ${commands}`;
