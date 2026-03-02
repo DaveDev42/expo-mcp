@@ -1580,7 +1580,9 @@ function createLifecycleHandlers(managers) {
     },
     async press_key(args2) {
       const { deviceId: deviceId2 } = requireNativeDevice(registry, "press_key");
-      const flowYaml = `- pressKey: ${args2.key}`;
+      const flowYaml = `appId: any
+---
+- pressKey: ${args2.key}`;
       const result = await managers.maestroManager.callTool("run_flow", {
         flow_yaml: flowYaml,
         device_id: deviceId2
@@ -1591,8 +1593,11 @@ function createLifecycleHandlers(managers) {
     async scroll(args2) {
       const { deviceId: deviceId2 } = requireNativeDevice(registry, "scroll");
       const direction = args2.direction?.toUpperCase();
-      const flowYaml = direction ? `- scroll:
+      const commands = direction ? `- scroll:
     direction: ${direction}` : "- scroll";
+      const flowYaml = `appId: any
+---
+${commands}`;
       const result = await managers.maestroManager.callTool("run_flow", {
         flow_yaml: flowYaml,
         device_id: deviceId2
@@ -1602,27 +1607,28 @@ function createLifecycleHandlers(managers) {
     },
     async swipe(args2) {
       const { deviceId: deviceId2 } = requireNativeDevice(registry, "swipe");
-      let flowYaml;
+      let commands;
       if (args2.start && args2.end) {
-        let yaml = `- swipe:
+        commands = `- swipe:
     start: "${args2.start}"
     end: "${args2.end}"`;
         if (args2.duration) {
-          yaml += `
+          commands += `
     duration: ${args2.duration}`;
         }
-        flowYaml = yaml;
       } else if (args2.direction) {
-        let yaml = `- swipe:
+        commands = `- swipe:
     direction: ${args2.direction.toUpperCase()}`;
         if (args2.duration) {
-          yaml += `
+          commands += `
     duration: ${args2.duration}`;
         }
-        flowYaml = yaml;
       } else {
         throw new Error('Either "direction" or both "start" and "end" must be provided.');
       }
+      const flowYaml = `appId: any
+---
+${commands}`;
       const result = await managers.maestroManager.callTool("run_flow", {
         flow_yaml: flowYaml,
         device_id: deviceId2

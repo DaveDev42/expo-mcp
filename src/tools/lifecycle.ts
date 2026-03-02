@@ -503,7 +503,7 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
 
     async press_key(args: z.infer<typeof lifecycleToolSchemas.press_key.inputSchema>) {
       const { deviceId } = requireNativeDevice(registry, 'press_key');
-      const flowYaml = `- pressKey: ${args.key}`;
+      const flowYaml = `appId: any\n---\n- pressKey: ${args.key}`;
       const result = await managers.maestroManager.callTool('run_flow', {
         flow_yaml: flowYaml,
         device_id: deviceId,
@@ -515,7 +515,8 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
     async scroll(args: z.infer<typeof lifecycleToolSchemas.scroll.inputSchema>) {
       const { deviceId } = requireNativeDevice(registry, 'scroll');
       const direction = args.direction?.toUpperCase();
-      const flowYaml = direction ? `- scroll:\n    direction: ${direction}` : '- scroll';
+      const commands = direction ? `- scroll:\n    direction: ${direction}` : '- scroll';
+      const flowYaml = `appId: any\n---\n${commands}`;
       const result = await managers.maestroManager.callTool('run_flow', {
         flow_yaml: flowYaml,
         device_id: deviceId,
@@ -527,25 +528,24 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
     async swipe(args: z.infer<typeof lifecycleToolSchemas.swipe.inputSchema>) {
       const { deviceId } = requireNativeDevice(registry, 'swipe');
 
-      let flowYaml: string;
+      let commands: string;
       if (args.start && args.end) {
         // Precise mode with start/end points
-        let yaml = `- swipe:\n    start: "${args.start}"\n    end: "${args.end}"`;
+        commands = `- swipe:\n    start: "${args.start}"\n    end: "${args.end}"`;
         if (args.duration) {
-          yaml += `\n    duration: ${args.duration}`;
+          commands += `\n    duration: ${args.duration}`;
         }
-        flowYaml = yaml;
       } else if (args.direction) {
         // Simple direction mode
-        let yaml = `- swipe:\n    direction: ${args.direction.toUpperCase()}`;
+        commands = `- swipe:\n    direction: ${args.direction.toUpperCase()}`;
         if (args.duration) {
-          yaml += `\n    duration: ${args.duration}`;
+          commands += `\n    duration: ${args.duration}`;
         }
-        flowYaml = yaml;
       } else {
         throw new Error('Either "direction" or both "start" and "end" must be provided.');
       }
 
+      const flowYaml = `appId: any\n---\n${commands}`;
       const result = await managers.maestroManager.callTool('run_flow', {
         flow_yaml: flowYaml,
         device_id: deviceId,
