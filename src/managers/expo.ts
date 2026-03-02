@@ -132,6 +132,7 @@ export class ExpoManager {
   private logBuffer: LogEntry[] = [];
   private maxLogLines: number;
   private sessionState: SessionStateProvider;
+  private onExitCallback: ((code: number | null) => void) | null = null;
   private static readonly EXPO_GO_MIN_STORAGE_MB = 300; // Expo Go APK is ~186MB, need extra for extraction
   private static readonly LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
     log: 0,
@@ -144,6 +145,14 @@ export class ExpoManager {
     this.sessionState = sessionState;
     this.appDir = appDir ?? process.env.EXPO_APP_DIR ?? process.cwd();
     this.maxLogLines = parseInt(process.env.LOG_BUFFER_SIZE || '400', 10);
+  }
+
+  /**
+   * Register a callback invoked when the Expo process exits unexpectedly.
+   * The callback is NOT fired when stop() is called (intentional shutdown).
+   */
+  onExit(callback: (code: number | null) => void): void {
+    this.onExitCallback = callback;
   }
 
   /**
@@ -572,7 +581,12 @@ export class ExpoManager {
 
     this.process.on('exit', (code) => {
       console.error(`[Expo] Process exited with code ${code}`);
+      const wasRunning = this.process !== null;
       this.process = null;
+      // Fire onExit callback for unexpected exits (not triggered by stop())
+      if (wasRunning && this.onExitCallback) {
+        this.onExitCallback(code);
+      }
     });
 
     if (waitForReady) {
@@ -592,6 +606,11 @@ export class ExpoManager {
       return;
     }
 
+    // Suppress onExit callback during intentional shutdown
+    // (lifecycle handler manages registry state directly)
+    const savedCallback = this.onExitCallback;
+    this.onExitCallback = null;
+
     return new Promise((resolve) => {
       const proc = this.process!;
       const pid = proc.pid!;
@@ -603,6 +622,8 @@ export class ExpoManager {
           forceKillTimeout = null;
         }
         this.process = null;
+        // Restore callback for future launches
+        this.onExitCallback = savedCallback;
         resolve();
       };
 

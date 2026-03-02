@@ -123,7 +123,7 @@ export class McpServer {
         };
       });
 
-      const allMaestroTools: Tool[] = (await this.maestroProxy.getTools()).map((tool) => ({
+      const allMaestroTools: Tool[] = this.maestroProxy.getTools().map((tool) => ({
         name: tool.name,
         description: tool.description,
         inputSchema: tool.inputSchema,

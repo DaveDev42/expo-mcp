@@ -54,6 +54,7 @@ var ExpoManager = class _ExpoManager {
   logBuffer = [];
   maxLogLines;
   sessionState;
+  onExitCallback = null;
   static EXPO_GO_MIN_STORAGE_MB = 300;
   // Expo Go APK is ~186MB, need extra for extraction
   static LOG_LEVEL_PRIORITY = {
@@ -66,6 +67,13 @@ var ExpoManager = class _ExpoManager {
     this.sessionState = sessionState;
     this.appDir = appDir2 ?? process.env.EXPO_APP_DIR ?? process.cwd();
     this.maxLogLines = parseInt(process.env.LOG_BUFFER_SIZE || "400", 10);
+  }
+  /**
+   * Register a callback invoked when the Expo process exits unexpectedly.
+   * The callback is NOT fired when stop() is called (intentional shutdown).
+   */
+  onExit(callback) {
+    this.onExitCallback = callback;
   }
   /**
    * Get ADB path (tries common locations)
@@ -428,7 +436,11 @@ var ExpoManager = class _ExpoManager {
     });
     this.process.on("exit", (code) => {
       console.error(`[Expo] Process exited with code ${code}`);
+      const wasRunning = this.process !== null;
       this.process = null;
+      if (wasRunning && this.onExitCallback) {
+        this.onExitCallback(code);
+      }
     });
     if (waitForReady) {
       await this.waitForServer(port, timeoutSecs);
@@ -442,6 +454,8 @@ var ExpoManager = class _ExpoManager {
     if (!this.process || !this.process.pid) {
       return;
     }
+    const savedCallback = this.onExitCallback;
+    this.onExitCallback = null;
     return new Promise((resolve) => {
       const proc = this.process;
       const pid = proc.pid;
@@ -452,6 +466,7 @@ var ExpoManager = class _ExpoManager {
           forceKillTimeout = null;
         }
         this.process = null;
+        this.onExitCallback = savedCallback;
         resolve();
       };
       proc.on("exit", cleanup);
@@ -589,8 +604,59 @@ var ExpoManager = class _ExpoManager {
 };
 
 // src/managers/maestro.ts
-import { spawn as spawn2 } from "child_process";
+import { spawn as spawn2, execFileSync } from "child_process";
 import { setTimeout as sleep } from "timers/promises";
+
+// src/utils/version.ts
+function parseVersion(v) {
+  const match = v.trim().match(/(\d+)\.(\d+)\.(\d+)/);
+  if (!match) {
+    throw new Error(`Invalid version: "${v}"`);
+  }
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+function compareVersions(a, b) {
+  for (let i = 0; i < 3; i++) {
+    if (a[i] > b[i]) return 1;
+    if (a[i] < b[i]) return -1;
+  }
+  return 0;
+}
+function satisfiesRange(version, range) {
+  const ver = parseVersion(version);
+  const constraints = range.trim().split(/\s+/);
+  for (const constraint of constraints) {
+    const match = constraint.match(/^(>=|<=|>|<|=)(\d+\.\d+\.\d+)$/);
+    if (!match) {
+      throw new Error(`Invalid range constraint: "${constraint}"`);
+    }
+    const op = match[1];
+    const target = parseVersion(match[2]);
+    const cmp = compareVersions(ver, target);
+    switch (op) {
+      case ">=":
+        if (cmp < 0) return false;
+        break;
+      case ">":
+        if (cmp <= 0) return false;
+        break;
+      case "<=":
+        if (cmp > 0) return false;
+        break;
+      case "<":
+        if (cmp >= 0) return false;
+        break;
+      case "=":
+        if (cmp !== 0) return false;
+        break;
+    }
+  }
+  return true;
+}
+
+// src/managers/maestro.ts
+var COMPATIBLE_MAESTRO_VERSION = ">=2.0.0 <3.0.0";
+var SCHEMA_SOURCE_VERSION = "2.2.0";
 var MaestroManager = class _MaestroManager {
   process = null;
   tools = /* @__PURE__ */ new Map();
@@ -604,8 +670,22 @@ var MaestroManager = class _MaestroManager {
     if (this.isInitialized) {
       return;
     }
-    console.error("[Maestro] Starting Maestro MCP process...");
     const maestroPath = process.env.MAESTRO_CLI_PATH || `${process.env.HOME}/.maestro/bin/maestro`;
+    try {
+      const raw = execFileSync(maestroPath, ["--version"], { timeout: 5e3, encoding: "utf8" });
+      const version = raw.trim();
+      parseVersion(version);
+      if (!satisfiesRange(version, COMPATIBLE_MAESTRO_VERSION)) {
+        console.error(
+          `[expo-mcp] WARNING: Maestro CLI version ${version} detected. Static tool schemas were built for version ${SCHEMA_SOURCE_VERSION}. Compatible range: ${COMPATIBLE_MAESTRO_VERSION}. Tool schemas may be outdated or incompatible.`
+        );
+      } else {
+        console.error(`[Maestro] CLI version ${version} (compatible)`);
+      }
+    } catch {
+      console.error("[expo-mcp] WARNING: Could not determine Maestro CLI version. Proceeding anyway.");
+    }
+    console.error("[Maestro] Starting Maestro MCP process...");
     this.process = spawn2(maestroPath, ["mcp"], {
       stdio: ["pipe", "pipe", "pipe"],
       detached: true
@@ -1223,6 +1303,21 @@ var lifecycleToolSchemas = {
 };
 function createLifecycleHandlers(managers) {
   const { registry } = managers;
+  managers.expoManager.onExit((code) => {
+    console.error(`[expo-mcp] Expo process exited unexpectedly (code ${code}), syncing registry`);
+    registry.update({
+      status: "stopped",
+      deviceId: null,
+      deviceName: null,
+      platform: null,
+      port: null,
+      target: null,
+      host: "lan",
+      deviceLeasedAt: null,
+      deviceLeaseExpiresAt: null,
+      deviceLeaseTtlMs: null
+    });
+  });
   return {
     async get_session_status() {
       const state = registry.getSessionState();
@@ -1660,27 +1755,184 @@ var TOOL_RENAME_MAP = {
 var REVERSE_RENAME_MAP = Object.fromEntries(
   Object.entries(TOOL_RENAME_MAP).map(([k, v]) => [v, k])
 );
-var TOOL_DESCRIPTION_ENHANCEMENTS = {
-  take_screenshot: REQUIRES_SESSION,
-  tap_on: REQUIRES_SESSION,
-  input_text: REQUIRES_SESSION,
-  back: REQUIRES_SESSION,
-  run_maestro_flow: REQUIRES_SESSION,
-  run_maestro_flow_files: REQUIRES_SESSION,
-  inspect_view_hierarchy: REQUIRES_SESSION,
-  list_devices: "Can be called without an active session.",
-  check_maestro_flow_syntax: "Can be called without an active session."
-};
-var FALLBACK_MAESTRO_TOOLS = [
-  { name: "take_screenshot", description: `Take a screenshot of the device screen. ${REQUIRES_SESSION}`, inputSchema: { type: "object", properties: {} } },
-  { name: "tap_on", description: `Tap on a UI element by text, id, or coordinates. ${REQUIRES_SESSION}`, inputSchema: { type: "object", properties: { text: { type: "string", description: "Text of element to tap" }, id: { type: "string", description: "Accessibility ID of element to tap" }, point: { type: "string", description: 'Coordinates to tap (e.g. "50%,50%")' } } } },
-  { name: "input_text", description: `Type text into the currently focused field. ${REQUIRES_SESSION}`, inputSchema: { type: "object", properties: { text: { type: "string", description: "Text to input" } }, required: ["text"] } },
-  { name: "back", description: `Press the back button. ${REQUIRES_SESSION}`, inputSchema: { type: "object", properties: {} } },
-  { name: "run_maestro_flow", description: `Run a Maestro YAML flow. ${REQUIRES_SESSION}`, inputSchema: { type: "object", properties: { flow_yaml: { type: "string", description: "YAML flow content" } }, required: ["flow_yaml"] } },
-  { name: "run_maestro_flow_files", description: `Run Maestro flow files from the project directory. ${REQUIRES_SESSION}`, inputSchema: { type: "object", properties: { paths: { type: "array", items: { type: "string" }, description: "Paths to Maestro flow files" } }, required: ["paths"] } },
-  { name: "check_maestro_flow_syntax", description: `Validate Maestro YAML flow syntax without running it. Can be called without an active session.`, inputSchema: { type: "object", properties: { flow_yaml: { type: "string", description: "YAML flow content to validate" } }, required: ["flow_yaml"] } },
-  { name: "inspect_view_hierarchy", description: `Get the UI element tree of the current screen. ${REQUIRES_SESSION}`, inputSchema: { type: "object", properties: {} } },
-  { name: "list_devices", description: "List all available devices (simulators and emulators). Can be called without an active session.", inputSchema: { type: "object", properties: {} } }
+var MAESTRO_TOOL_SCHEMAS = [
+  {
+    name: "list_devices",
+    description: "List all available devices that can be launched for automation. Can be called without an active session.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: "take_screenshot",
+    description: `Take a screenshot of the current device screen ${REQUIRES_SESSION}`,
+    inputSchema: {
+      type: "object",
+      properties: {}
+      // device_id stripped (auto-injected)
+    }
+  },
+  {
+    name: "tap_on",
+    description: `Tap on a UI element by selector or description ${REQUIRES_SESSION}`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        text: {
+          type: "string",
+          description: "Text content to match (from 'text' field in inspect_ui output)"
+        },
+        id: {
+          type: "string",
+          description: "Element ID to match (from 'id' field in inspect_ui output)"
+        },
+        index: {
+          type: "integer",
+          description: "0-based index if multiple elements match the same criteria"
+        },
+        use_fuzzy_matching: {
+          type: "boolean",
+          description: "Whether to use fuzzy/partial text matching (true, default) or exact regex matching (false)"
+        },
+        enabled: {
+          type: "boolean",
+          description: "If true, only match enabled elements. If false, only match disabled elements. Omit this field to match regardless of enabled state."
+        },
+        checked: {
+          type: "boolean",
+          description: "If true, only match checked elements. If false, only match unchecked elements. Omit this field to match regardless of checked state."
+        },
+        focused: {
+          type: "boolean",
+          description: "If true, only match focused elements. If false, only match unfocused elements. Omit this field to match regardless of focus state."
+        },
+        selected: {
+          type: "boolean",
+          description: "If true, only match selected elements. If false, only match unselected elements. Omit this field to match regardless of selection state."
+        }
+      }
+      // device_id stripped (auto-injected); no required fields remain
+    }
+  },
+  {
+    name: "input_text",
+    description: `Input text into the currently focused text field ${REQUIRES_SESSION}`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "The text to input" }
+      },
+      required: ["text"]
+      // device_id stripped (auto-injected)
+    }
+  },
+  {
+    name: "back",
+    description: `Press the back button on the device ${REQUIRES_SESSION}`,
+    inputSchema: {
+      type: "object",
+      properties: {}
+      // device_id stripped (auto-injected)
+    }
+  },
+  {
+    name: "run_maestro_flow",
+    description: `Use this when interacting with a device and running adhoc commands, preferably one at a time.
+
+Whenever you're exploring an app, testing out commands or debugging, prefer using this tool over creating temp files and using run_flow_files.
+
+Run a set of Maestro commands (one or more). This can be a full maestro script (including headers), a set of commands (one per line) or simply a single command (eg '- tapOn: 123').
+
+If this fails due to no device running, please ask the user to start a device!
+
+If you don't have an up-to-date view hierarchy or screenshot on which to execute the commands, please call inspect_view_hierarchy first, instead of blindly guessing.
+
+*** You don't need to call check_syntax before executing this, as syntax will be checked as part of the execution flow. ***
+
+Use the \`inspect_view_hierarchy\` tool to retrieve the current view hierarchy and use it to execute commands on the device.
+Use the \`cheat_sheet\` tool to retrieve a summary of Maestro's flow syntax before using any of the other tools.
+
+Examples of valid inputs:
+\`\`\`
+- tapOn: 123
+\`\`\`
+
+\`\`\`
+appId: any
+---
+- tapOn: 123
+\`\`\`
+
+\`\`\`
+appId: any
+# other headers here
+---
+- tapOn: 456
+- scroll
+# other commands here
+\`\`\` ${REQUIRES_SESSION}`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        flow_yaml: {
+          type: "string",
+          description: "YAML-formatted Maestro flow content to execute"
+        },
+        env: {
+          type: "object",
+          description: 'Optional environment variables to inject into the flow (e.g., {"APP_ID": "com.example.app", "LANGUAGE": "en"})',
+          additionalProperties: { type: "string" }
+        }
+      },
+      required: ["flow_yaml"]
+      // device_id stripped (auto-injected)
+    }
+  },
+  {
+    name: "run_maestro_flow_files",
+    description: `Run one or more full Maestro test files. If no device is running, you'll need to start a device first. If the command fails using a relative path, try using an absolute path. ${REQUIRES_SESSION}`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        flow_files: {
+          type: "string",
+          description: "Comma-separated file paths to YAML flow files to execute (e.g., 'flow1.yaml,flow2.yaml')"
+        },
+        env: {
+          type: "object",
+          description: 'Optional environment variables to inject into the flows (e.g., {"APP_ID": "com.example.app", "LANGUAGE": "tr", "COUNTRY": "TR"})',
+          additionalProperties: { type: "string" }
+        }
+      },
+      required: ["flow_files"]
+      // device_id stripped (auto-injected)
+    }
+  },
+  {
+    name: "check_maestro_flow_syntax",
+    description: "Validates the syntax of a block of Maestro code. Valid maestro code must be well-formatted YAML. Can be called without an active session.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        flow_yaml: {
+          type: "string",
+          description: "YAML-formatted Maestro flow content to validate"
+        }
+      },
+      required: ["flow_yaml"]
+    }
+  },
+  {
+    name: "inspect_view_hierarchy",
+    description: `Get the nested view hierarchy of the current screen in CSV format. Returns UI elements with bounds coordinates for interaction. Use this to understand screen layout, find specific elements by text/id, or locate interactive components. Elements include bounds (x,y,width,height), text content, resource IDs, and interaction states (clickable, enabled, checked). ${REQUIRES_SESSION}`,
+    inputSchema: {
+      type: "object",
+      properties: {}
+      // device_id stripped (auto-injected)
+    }
+  }
 ];
 function createMaestroToolsProxy(managers) {
   async function ensureInitialized() {
@@ -1692,34 +1944,9 @@ function createMaestroToolsProxy(managers) {
     }
   }
   return {
-    async getTools() {
-      try {
-        await ensureInitialized();
-      } catch (error) {
-        console.error("[expo-mcp] Failed to initialize Maestro for tools list:", error);
-        return FALLBACK_MAESTRO_TOOLS;
-      }
-      const tools = managers.maestroManager.getTools();
-      return tools.filter((tool) => !HIDDEN_TOOLS.includes(tool.name)).map((tool) => ({ ...tool, name: TOOL_RENAME_MAP[tool.name] ?? tool.name })).map((tool) => {
-        if (DEVICE_REQUIRED_TOOLS.includes(tool.name)) {
-          const schema = { ...tool.inputSchema };
-          if (schema.properties) {
-            const { device_id, ...restProperties } = schema.properties;
-            schema.properties = restProperties;
-          }
-          if (schema.required && Array.isArray(schema.required)) {
-            schema.required = schema.required.filter((r) => r !== "device_id");
-          }
-          return { ...tool, inputSchema: schema };
-        }
-        return tool;
-      }).map((tool) => {
-        const enhancement = TOOL_DESCRIPTION_ENHANCEMENTS[tool.name];
-        if (enhancement && !tool.description.includes(enhancement)) {
-          return { ...tool, description: `${tool.description} ${enhancement}` };
-        }
-        return tool;
-      });
+    /** Return static tool schemas (no Maestro process needed). */
+    getTools() {
+      return MAESTRO_TOOL_SCHEMAS;
     },
     async callTool(name, args2) {
       const maestroName = REVERSE_RENAME_MAP[name] ?? name;
@@ -1842,7 +2069,7 @@ var McpServer = class {
           }
         };
       });
-      const allMaestroTools = (await this.maestroProxy.getTools()).map((tool) => ({
+      const allMaestroTools = this.maestroProxy.getTools().map((tool) => ({
         name: tool.name,
         description: tool.description,
         inputSchema: tool.inputSchema

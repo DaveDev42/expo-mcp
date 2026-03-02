@@ -1,5 +1,6 @@
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, ChildProcess, execFileSync } from 'child_process';
 import { setTimeout as sleep } from 'timers/promises';
+import { parseVersion, satisfiesRange } from '../utils/version.js';
 
 export interface MaestroTool {
   name: string;
@@ -11,6 +12,12 @@ export interface MaestroToolCallResult {
   content: Array<{ type: 'text'; text: string }>;
   isError?: boolean;
 }
+
+/** Semver range of Maestro CLI versions compatible with the static tool schemas. */
+const COMPATIBLE_MAESTRO_VERSION = '>=2.0.0 <3.0.0';
+
+/** The Maestro CLI version from which the static tool schemas were captured. */
+export const SCHEMA_SOURCE_VERSION = '2.2.0';
 
 export class MaestroManager {
   private process: ChildProcess | null = null;
@@ -27,8 +34,27 @@ export class MaestroManager {
       return;
     }
 
-    console.error('[Maestro] Starting Maestro MCP process...');
     const maestroPath = process.env.MAESTRO_CLI_PATH || `${process.env.HOME}/.maestro/bin/maestro`;
+
+    // Check Maestro CLI version (non-blocking — warn only)
+    try {
+      const raw = execFileSync(maestroPath, ['--version'], { timeout: 5000, encoding: 'utf8' });
+      const version = raw.trim();
+      parseVersion(version); // validate format
+      if (!satisfiesRange(version, COMPATIBLE_MAESTRO_VERSION)) {
+        console.error(
+          `[expo-mcp] WARNING: Maestro CLI version ${version} detected. ` +
+          `Static tool schemas were built for version ${SCHEMA_SOURCE_VERSION}. ` +
+          `Compatible range: ${COMPATIBLE_MAESTRO_VERSION}. Tool schemas may be outdated or incompatible.`
+        );
+      } else {
+        console.error(`[Maestro] CLI version ${version} (compatible)`);
+      }
+    } catch {
+      console.error('[expo-mcp] WARNING: Could not determine Maestro CLI version. Proceeding anyway.');
+    }
+
+    console.error('[Maestro] Starting Maestro MCP process...');
 
     this.process = spawn(maestroPath, ['mcp'], {
       stdio: ['pipe', 'pipe', 'pipe'],

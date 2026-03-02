@@ -37,31 +37,193 @@ const REVERSE_RENAME_MAP: Record<string, string> = Object.fromEntries(
   Object.entries(TOOL_RENAME_MAP).map(([k, v]) => [v, k])
 );
 
-// Description enhancements for Maestro tools (keyed by renamed name)
-const TOOL_DESCRIPTION_ENHANCEMENTS: Record<string, string> = {
-  take_screenshot: REQUIRES_SESSION,
-  tap_on: REQUIRES_SESSION,
-  input_text: REQUIRES_SESSION,
-  back: REQUIRES_SESSION,
-  run_maestro_flow: REQUIRES_SESSION,
-  run_maestro_flow_files: REQUIRES_SESSION,
-  inspect_view_hierarchy: REQUIRES_SESSION,
-  list_devices: 'Can be called without an active session.',
-  check_maestro_flow_syntax: 'Can be called without an active session.',
-};
-
-// Fallback tool definitions shown before Maestro is initialized
-// NOTE: uses renamed tool names (after TOOL_RENAME_MAP is applied)
-const FALLBACK_MAESTRO_TOOLS = [
-  { name: 'take_screenshot', description: `Take a screenshot of the device screen. ${REQUIRES_SESSION}`, inputSchema: { type: 'object', properties: {} } },
-  { name: 'tap_on', description: `Tap on a UI element by text, id, or coordinates. ${REQUIRES_SESSION}`, inputSchema: { type: 'object', properties: { text: { type: 'string', description: 'Text of element to tap' }, id: { type: 'string', description: 'Accessibility ID of element to tap' }, point: { type: 'string', description: 'Coordinates to tap (e.g. "50%,50%")' } } } },
-  { name: 'input_text', description: `Type text into the currently focused field. ${REQUIRES_SESSION}`, inputSchema: { type: 'object', properties: { text: { type: 'string', description: 'Text to input' } }, required: ['text'] } },
-  { name: 'back', description: `Press the back button. ${REQUIRES_SESSION}`, inputSchema: { type: 'object', properties: {} } },
-  { name: 'run_maestro_flow', description: `Run a Maestro YAML flow. ${REQUIRES_SESSION}`, inputSchema: { type: 'object', properties: { flow_yaml: { type: 'string', description: 'YAML flow content' } }, required: ['flow_yaml'] } },
-  { name: 'run_maestro_flow_files', description: `Run Maestro flow files from the project directory. ${REQUIRES_SESSION}`, inputSchema: { type: 'object', properties: { paths: { type: 'array', items: { type: 'string' }, description: 'Paths to Maestro flow files' } }, required: ['paths'] } },
-  { name: 'check_maestro_flow_syntax', description: `Validate Maestro YAML flow syntax without running it. Can be called without an active session.`, inputSchema: { type: 'object', properties: { flow_yaml: { type: 'string', description: 'YAML flow content to validate' } }, required: ['flow_yaml'] } },
-  { name: 'inspect_view_hierarchy', description: `Get the UI element tree of the current screen. ${REQUIRES_SESSION}`, inputSchema: { type: 'object', properties: {} } },
-  { name: 'list_devices', description: 'List all available devices (simulators and emulators). Can be called without an active session.', inputSchema: { type: 'object', properties: {} } },
+/**
+ * Static Maestro tool schemas — the final form exposed to Claude Code.
+ *
+ * Source version: 2.2.0 (see SCHEMA_SOURCE_VERSION in managers/maestro.ts).
+ * If the installed Maestro CLI version falls outside the compatible range,
+ * a warning is emitted at startup (see MaestroManager.initialize).
+ *
+ * These are based on the actual `maestro mcp` → `tools/list` response with:
+ *   1. HIDDEN_TOOLS removed (launch_app, stop_app, start_device, cheat_sheet, query_docs)
+ *   2. TOOL_RENAME_MAP applied (run_flow→run_maestro_flow, etc.)
+ *   3. device_id stripped from DEVICE_REQUIRED_TOOLS schemas
+ *   4. Description enhancements appended (REQUIRES_SESSION / "Can be called without an active session.")
+ *
+ * By defining these statically we avoid the need to initialize the Maestro CLI
+ * process at tools/list time, which previously caused tools to be missing when
+ * Maestro was unavailable at server startup.
+ */
+const MAESTRO_TOOL_SCHEMAS = [
+  {
+    name: 'list_devices',
+    description:
+      'List all available devices that can be launched for automation. Can be called without an active session.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: [] as string[],
+    },
+  },
+  {
+    name: 'take_screenshot',
+    description: `Take a screenshot of the current device screen ${REQUIRES_SESSION}`,
+    inputSchema: {
+      type: 'object',
+      properties: {} as Record<string, any>,
+      // device_id stripped (auto-injected)
+    },
+  },
+  {
+    name: 'tap_on',
+    description: `Tap on a UI element by selector or description ${REQUIRES_SESSION}`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        text: {
+          type: 'string',
+          description: "Text content to match (from 'text' field in inspect_ui output)",
+        },
+        id: {
+          type: 'string',
+          description: "Element ID to match (from 'id' field in inspect_ui output)",
+        },
+        index: {
+          type: 'integer',
+          description: '0-based index if multiple elements match the same criteria',
+        },
+        use_fuzzy_matching: {
+          type: 'boolean',
+          description:
+            'Whether to use fuzzy/partial text matching (true, default) or exact regex matching (false)',
+        },
+        enabled: {
+          type: 'boolean',
+          description:
+            'If true, only match enabled elements. If false, only match disabled elements. Omit this field to match regardless of enabled state.',
+        },
+        checked: {
+          type: 'boolean',
+          description:
+            'If true, only match checked elements. If false, only match unchecked elements. Omit this field to match regardless of checked state.',
+        },
+        focused: {
+          type: 'boolean',
+          description:
+            'If true, only match focused elements. If false, only match unfocused elements. Omit this field to match regardless of focus state.',
+        },
+        selected: {
+          type: 'boolean',
+          description:
+            'If true, only match selected elements. If false, only match unselected elements. Omit this field to match regardless of selection state.',
+        },
+      },
+      // device_id stripped (auto-injected); no required fields remain
+    },
+  },
+  {
+    name: 'input_text',
+    description: `Input text into the currently focused text field ${REQUIRES_SESSION}`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: 'The text to input' },
+      },
+      required: ['text'],
+      // device_id stripped (auto-injected)
+    },
+  },
+  {
+    name: 'back',
+    description: `Press the back button on the device ${REQUIRES_SESSION}`,
+    inputSchema: {
+      type: 'object',
+      properties: {} as Record<string, any>,
+      // device_id stripped (auto-injected)
+    },
+  },
+  {
+    name: 'run_maestro_flow',
+    description:
+      'Use this when interacting with a device and running adhoc commands, preferably one at a time.\n\n' +
+      "Whenever you're exploring an app, testing out commands or debugging, prefer using this tool over creating temp files and using run_flow_files.\n\n" +
+      'Run a set of Maestro commands (one or more). This can be a full maestro script (including headers), a set of commands (one per line) or simply a single command (eg \'- tapOn: 123\').\n\n' +
+      'If this fails due to no device running, please ask the user to start a device!\n\n' +
+      "If you don't have an up-to-date view hierarchy or screenshot on which to execute the commands, please call inspect_view_hierarchy first, instead of blindly guessing.\n\n" +
+      "*** You don't need to call check_syntax before executing this, as syntax will be checked as part of the execution flow. ***\n\n" +
+      'Use the `inspect_view_hierarchy` tool to retrieve the current view hierarchy and use it to execute commands on the device.\n' +
+      "Use the `cheat_sheet` tool to retrieve a summary of Maestro's flow syntax before using any of the other tools.\n\n" +
+      'Examples of valid inputs:\n```\n- tapOn: 123\n```\n\n```\nappId: any\n---\n- tapOn: 123\n```\n\n```\nappId: any\n# other headers here\n---\n- tapOn: 456\n- scroll\n# other commands here\n```' +
+      ` ${REQUIRES_SESSION}`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        flow_yaml: {
+          type: 'string',
+          description: 'YAML-formatted Maestro flow content to execute',
+        },
+        env: {
+          type: 'object',
+          description:
+            'Optional environment variables to inject into the flow (e.g., {"APP_ID": "com.example.app", "LANGUAGE": "en"})',
+          additionalProperties: { type: 'string' },
+        },
+      },
+      required: ['flow_yaml'],
+      // device_id stripped (auto-injected)
+    },
+  },
+  {
+    name: 'run_maestro_flow_files',
+    description:
+      "Run one or more full Maestro test files. If no device is running, you'll need to start a device first. " +
+      `If the command fails using a relative path, try using an absolute path. ${REQUIRES_SESSION}`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        flow_files: {
+          type: 'string',
+          description:
+            "Comma-separated file paths to YAML flow files to execute (e.g., 'flow1.yaml,flow2.yaml')",
+        },
+        env: {
+          type: 'object',
+          description:
+            'Optional environment variables to inject into the flows (e.g., {"APP_ID": "com.example.app", "LANGUAGE": "tr", "COUNTRY": "TR"})',
+          additionalProperties: { type: 'string' },
+        },
+      },
+      required: ['flow_files'],
+      // device_id stripped (auto-injected)
+    },
+  },
+  {
+    name: 'check_maestro_flow_syntax',
+    description:
+      'Validates the syntax of a block of Maestro code. Valid maestro code must be well-formatted YAML. Can be called without an active session.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        flow_yaml: {
+          type: 'string',
+          description: 'YAML-formatted Maestro flow content to validate',
+        },
+      },
+      required: ['flow_yaml'],
+    },
+  },
+  {
+    name: 'inspect_view_hierarchy',
+    description:
+      'Get the nested view hierarchy of the current screen in CSV format. Returns UI elements with bounds coordinates for interaction. ' +
+      'Use this to understand screen layout, find specific elements by text/id, or locate interactive components. ' +
+      `Elements include bounds (x,y,width,height), text content, resource IDs, and interaction states (clickable, enabled, checked). ${REQUIRES_SESSION}`,
+    inputSchema: {
+      type: 'object',
+      properties: {} as Record<string, any>,
+      // device_id stripped (auto-injected)
+    },
+  },
 ];
 
 export function createMaestroToolsProxy(managers: MaestroToolsProxy) {
@@ -76,44 +238,9 @@ export function createMaestroToolsProxy(managers: MaestroToolsProxy) {
   }
 
   return {
-    async getTools() {
-      try {
-        await ensureInitialized();
-      } catch (error) {
-        console.error('[expo-mcp] Failed to initialize Maestro for tools list:', error);
-        return FALLBACK_MAESTRO_TOOLS;
-      }
-
-      const tools = managers.maestroManager.getTools();
-
-      return tools
-        // 1. Filter hidden tools (using Maestro original names)
-        .filter((tool) => !HIDDEN_TOOLS.includes(tool.name))
-        // 2. Rename tools
-        .map((tool) => ({ ...tool, name: TOOL_RENAME_MAP[tool.name] ?? tool.name }))
-        // 3. Strip device_id from device-required tools (using renamed names)
-        .map((tool) => {
-          if (DEVICE_REQUIRED_TOOLS.includes(tool.name)) {
-            const schema = { ...tool.inputSchema };
-            if (schema.properties) {
-              const { device_id, ...restProperties } = schema.properties;
-              schema.properties = restProperties;
-            }
-            if (schema.required && Array.isArray(schema.required)) {
-              schema.required = schema.required.filter((r: string) => r !== 'device_id');
-            }
-            return { ...tool, inputSchema: schema };
-          }
-          return tool;
-        })
-        // 4. Enhance descriptions
-        .map((tool) => {
-          const enhancement = TOOL_DESCRIPTION_ENHANCEMENTS[tool.name];
-          if (enhancement && !tool.description.includes(enhancement)) {
-            return { ...tool, description: `${tool.description} ${enhancement}` };
-          }
-          return tool;
-        });
+    /** Return static tool schemas (no Maestro process needed). */
+    getTools() {
+      return MAESTRO_TOOL_SCHEMAS;
     },
 
     async callTool(name: string, args: any) {

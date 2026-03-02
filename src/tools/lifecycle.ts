@@ -169,6 +169,23 @@ export const lifecycleToolSchemas = {
 export function createLifecycleHandlers(managers: LifecycleTools) {
   const { registry } = managers;
 
+  // Sync registry when Expo process exits unexpectedly (crash, OOM, etc.)
+  managers.expoManager.onExit((code) => {
+    console.error(`[expo-mcp] Expo process exited unexpectedly (code ${code}), syncing registry`);
+    registry.update({
+      status: 'stopped',
+      deviceId: null,
+      deviceName: null,
+      platform: null,
+      port: null,
+      target: null,
+      host: 'lan',
+      deviceLeasedAt: null,
+      deviceLeaseExpiresAt: null,
+      deviceLeaseTtlMs: null,
+    });
+  });
+
   return {
     async get_session_status() {
       // getSessionState() may self-evict expired lease, so call it first
