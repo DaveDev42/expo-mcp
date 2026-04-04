@@ -16,14 +16,19 @@ MCP server for Expo/React Native app automation with Maestro integration.
 
 Install as a plugin to get the MCP server, QA agent, flow writer, and usage guide in one step:
 
+```
+# 1. Add the marketplace source
+/plugin marketplace add DaveDev42/expo-mcp
+
+# 2. Install the plugin
+/plugin install expo-mcp --scope project
+```
+
+Or from the terminal:
+
 ```bash
-claude plugin install github:DaveDev42/expo-mcp
-```
-
-Or from within Claude Code, use the `/install-plugin` slash command:
-
-```
-/install-plugin github:DaveDev42/expo-mcp
+claude plugin marketplace add DaveDev42/expo-mcp
+claude plugin install expo-mcp --scope project
 ```
 
 This automatically:

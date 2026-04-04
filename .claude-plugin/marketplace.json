@@ -1,0 +1,9 @@
+{
+  "plugins": [
+    {
+      "name": "expo-mcp",
+      "description": "Expo/React Native app automation — QA testing, UI automation, and Maestro integration",
+      "version": "0.2.0"
+    }
+  ]
+}
