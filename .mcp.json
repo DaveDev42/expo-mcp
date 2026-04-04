@@ -2,7 +2,7 @@
   "mcpServers": {
     "expo": {
       "command": "npx",
-      "args": ["-y", "expo-mcp"]
+      "args": ["-y", "github:DaveDev42/expo-mcp"]
     }
   }
 }
