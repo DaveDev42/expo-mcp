@@ -12,6 +12,23 @@ MCP server for Expo/React Native app automation with Maestro integration.
 
 ## Installation
 
+### As a Claude Code Plugin (Recommended)
+
+Install as a plugin to get the MCP server, QA agent, flow writer, and usage guide in one step:
+
+```bash
+claude plugin install github:DaveDev42/expo-mcp
+```
+
+This automatically:
+- Configures the `expo` MCP server (no manual `.mcp.json` needed)
+- Adds a **QA agent** (`qa`) for automated mobile app testing
+- Adds a **flow writer agent** (`flow-writer`) for creating Maestro YAML test flows
+- Adds a **usage guide** skill (`/expo-guide`) with tool reference and best practices
+- Adds a **validation hook** that warns on QA PASS verdicts without execution evidence
+
+### As an MCP Server Only
+
 ```bash
 npx -y expo-mcp
 ```
@@ -24,7 +41,9 @@ pnpx expo-mcp
 
 ## Usage with Claude Code
 
-Add to your `.mcp.json`:
+### Manual MCP Setup
+
+If not using the plugin, add to your `.mcp.json`:
 
 ```json
 {
@@ -137,6 +156,42 @@ get_logs({ level: "error" })
 
 # 6. Stop session when done
 stop_session()
+```
+
+## Plugin Features
+
+When installed as a Claude Code plugin, you get these additional features:
+
+### QA Agent
+
+Delegate mobile QA testing to the `qa` agent. It systematically tests your app on a simulator/emulator with strict evidence requirements — no code-review-only verdicts.
+
+```
+# In Claude Code, delegate to the QA agent:
+"Test the login flow on iOS simulator"  →  delegates to qa agent
+```
+
+The agent follows a structured methodology: launch app → inspect UI → interact → verify → report with PASS/FAIL/INCONCLUSIVE verdict.
+
+### Flow Writer Agent
+
+The `flow-writer` agent inspects the live app and creates Maestro YAML test flows:
+
+```
+# Ask the flow writer to create a test flow:
+"Write a Maestro flow for the onboarding sequence"  →  delegates to flow-writer agent
+```
+
+It validates syntax, executes the flow to verify it works, and writes the `.yaml` file to your project.
+
+### Usage Guide
+
+Access the tool reference and best practices with `/expo-guide`:
+
+```
+/expo-guide                    # Full guide
+/expo-guide session            # Session lifecycle
+/expo-guide debugging          # Debugging tips
 ```
 
 ## Tools

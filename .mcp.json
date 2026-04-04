@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "expo": {
+      "command": "npx",
+      "args": ["-y", "expo-mcp"]
+    }
+  }
+}
