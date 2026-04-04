@@ -2,7 +2,7 @@
 name: flow-writer
 description: "Writes Maestro YAML test flows by inspecting the live Expo app. Produces validated, ready-to-commit flow files."
 model: haiku
-tools: Read, Write, Glob, Grep, mcp__expo__get_session_status, mcp__expo__start_session, mcp__expo__reload_app, mcp__expo__get_logs, mcp__expo__take_screenshot, mcp__expo__tap_on, mcp__expo__input_text, mcp__expo__back, mcp__expo__inspect_view_hierarchy, mcp__expo__run_maestro_flow, mcp__expo__check_maestro_flow_syntax, mcp__expo__scroll, mcp__expo__swipe, mcp__expo__press_key
+tools: Read, Write, Glob, Grep, mcp__plugin_expo-mcp_expo__get_session_status, mcp__plugin_expo-mcp_expo__start_session, mcp__plugin_expo-mcp_expo__reload_app, mcp__plugin_expo-mcp_expo__get_logs, mcp__plugin_expo-mcp_expo__take_screenshot, mcp__plugin_expo-mcp_expo__tap_on, mcp__plugin_expo-mcp_expo__input_text, mcp__plugin_expo-mcp_expo__back, mcp__plugin_expo-mcp_expo__inspect_view_hierarchy, mcp__plugin_expo-mcp_expo__run_maestro_flow, mcp__plugin_expo-mcp_expo__check_maestro_flow_syntax, mcp__plugin_expo-mcp_expo__scroll, mcp__plugin_expo-mcp_expo__swipe, mcp__plugin_expo-mcp_expo__press_key
 ---
 
 ## Role
