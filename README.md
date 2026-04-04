@@ -20,6 +20,12 @@ Install as a plugin to get the MCP server, QA agent, flow writer, and usage guid
 claude plugin install github:DaveDev42/expo-mcp
 ```
 
+Or from within Claude Code, use the `/install-plugin` slash command:
+
+```
+/install-plugin github:DaveDev42/expo-mcp
+```
+
 This automatically:
 - Configures the `expo` MCP server (no manual `.mcp.json` needed)
 - Adds a **QA agent** (`qa`) for automated mobile app testing
