@@ -2,7 +2,10 @@
   "mcpServers": {
     "expo": {
       "command": "npx",
-      "args": ["-y", "github:DaveDev42/expo-mcp"]
+      "args": ["-y", "github:DaveDev42/expo-mcp"],
+      "env": {
+        "EXPO_APP_DIR": "${user_config.app_dir}"
+      }
     }
   }
 }
