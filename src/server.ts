@@ -126,7 +126,7 @@ export class McpServer {
       const allMaestroTools: Tool[] = this.maestroProxy.getTools().map((tool) => ({
         name: tool.name,
         description: tool.description,
-        inputSchema: tool.inputSchema,
+        inputSchema: tool.inputSchema as Tool['inputSchema'],
       }));
 
       const allTools = [...allLifecycleTools, ...allMaestroTools];

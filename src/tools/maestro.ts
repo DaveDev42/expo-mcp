@@ -60,7 +60,7 @@ const MAESTRO_TOOL_SCHEMAS = [
     description:
       'List all available devices that can be launched for automation. Can be called without an active session.',
     inputSchema: {
-      type: 'object',
+      type: 'object' as const,
       properties: {},
       required: [] as string[],
     },
@@ -69,7 +69,7 @@ const MAESTRO_TOOL_SCHEMAS = [
     name: 'take_screenshot',
     description: `Take a screenshot of the current device screen ${REQUIRES_SESSION}`,
     inputSchema: {
-      type: 'object',
+      type: 'object' as const,
       properties: {} as Record<string, any>,
       // device_id stripped (auto-injected)
     },
@@ -78,7 +78,7 @@ const MAESTRO_TOOL_SCHEMAS = [
     name: 'tap_on',
     description: `Tap on a UI element by selector or description ${REQUIRES_SESSION}`,
     inputSchema: {
-      type: 'object',
+      type: 'object' as const,
       properties: {
         text: {
           type: 'string',
@@ -125,7 +125,7 @@ const MAESTRO_TOOL_SCHEMAS = [
     name: 'input_text',
     description: `Input text into the currently focused text field ${REQUIRES_SESSION}`,
     inputSchema: {
-      type: 'object',
+      type: 'object' as const,
       properties: {
         text: { type: 'string', description: 'The text to input' },
       },
@@ -137,7 +137,7 @@ const MAESTRO_TOOL_SCHEMAS = [
     name: 'back',
     description: `Press the back button on the device ${REQUIRES_SESSION}`,
     inputSchema: {
-      type: 'object',
+      type: 'object' as const,
       properties: {} as Record<string, any>,
       // device_id stripped (auto-injected)
     },
@@ -156,14 +156,14 @@ const MAESTRO_TOOL_SCHEMAS = [
       'Examples of valid inputs:\n```\n- tapOn: 123\n```\n\n```\nappId: any\n---\n- tapOn: 123\n```\n\n```\nappId: any\n# other headers here\n---\n- tapOn: 456\n- scroll\n# other commands here\n```' +
       ` ${REQUIRES_SESSION}`,
     inputSchema: {
-      type: 'object',
+      type: 'object' as const,
       properties: {
         flow_yaml: {
           type: 'string',
           description: 'YAML-formatted Maestro flow content to execute',
         },
         env: {
-          type: 'object',
+          type: 'object' as const,
           description:
             'Optional environment variables to inject into the flow (e.g., {"APP_ID": "com.example.app", "LANGUAGE": "en"})',
           additionalProperties: { type: 'string' },
@@ -179,7 +179,7 @@ const MAESTRO_TOOL_SCHEMAS = [
       "Run one or more full Maestro test files. If no device is running, you'll need to start a device first. " +
       `If the command fails using a relative path, try using an absolute path. ${REQUIRES_SESSION}`,
     inputSchema: {
-      type: 'object',
+      type: 'object' as const,
       properties: {
         flow_files: {
           type: 'string',
@@ -187,7 +187,7 @@ const MAESTRO_TOOL_SCHEMAS = [
             "Comma-separated file paths to YAML flow files to execute (e.g., 'flow1.yaml,flow2.yaml')",
         },
         env: {
-          type: 'object',
+          type: 'object' as const,
           description:
             'Optional environment variables to inject into the flows (e.g., {"APP_ID": "com.example.app", "LANGUAGE": "tr", "COUNTRY": "TR"})',
           additionalProperties: { type: 'string' },
@@ -202,7 +202,7 @@ const MAESTRO_TOOL_SCHEMAS = [
     description:
       'Validates the syntax of a block of Maestro code. Valid maestro code must be well-formatted YAML. Can be called without an active session.',
     inputSchema: {
-      type: 'object',
+      type: 'object' as const,
       properties: {
         flow_yaml: {
           type: 'string',
@@ -219,7 +219,7 @@ const MAESTRO_TOOL_SCHEMAS = [
       'Use this to understand screen layout, find specific elements by text/id, or locate interactive components. ' +
       `Elements include bounds (x,y,width,height), text content, resource IDs, and interaction states (clickable, enabled, checked). ${REQUIRES_SESSION}`,
     inputSchema: {
-      type: 'object',
+      type: 'object' as const,
       properties: {} as Record<string, any>,
       // device_id stripped (auto-injected)
     },
