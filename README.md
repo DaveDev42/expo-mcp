@@ -68,14 +68,10 @@ Installing the plugin automatically wires up:
 
 ### As an MCP Server Only
 
-```bash
-npx -y expo-mcp
-```
-
-With pnpm:
+This project is distributed **only through GitHub** (the `expo-mcp` name on npm belongs to a different, unrelated package — do not use it). Run it via the GitHub reference:
 
 ```bash
-pnpx expo-mcp
+npx -y github:DaveDev42/expo-mcp
 ```
 
 ## Usage with Claude Code
@@ -87,9 +83,9 @@ If not using the plugin, add to your `.mcp.json`:
 ```json
 {
   "mcpServers": {
-    "expo-mcp": {
+    "expo": {
       "command": "npx",
-      "args": ["-y", "expo-mcp"]
+      "args": ["-y", "github:DaveDev42/expo-mcp"]
     }
   }
 }
@@ -102,9 +98,9 @@ Use a positional argument to specify the app directory:
 ```json
 {
   "mcpServers": {
-    "expo-mcp": {
+    "expo": {
       "command": "npx",
-      "args": ["-y", "expo-mcp", "apps/mobile"]
+      "args": ["-y", "github:DaveDev42/expo-mcp", "apps/mobile"]
     }
   }
 }
@@ -117,9 +113,9 @@ Pin a specific simulator or emulator with `--device-id`:
 ```json
 {
   "mcpServers": {
-    "expo-mcp": {
+    "expo": {
       "command": "npx",
-      "args": ["-y", "expo-mcp", "--device-id=6D192F60-1234-5678-ABCD-000000000000"]
+      "args": ["-y", "github:DaveDev42/expo-mcp", "--device-id=6D192F60-1234-5678-ABCD-000000000000"]
     }
   }
 }
@@ -132,9 +128,9 @@ Exclude specific tools with `--exclude-tools`:
 ```json
 {
   "mcpServers": {
-    "expo-mcp": {
+    "expo": {
       "command": "npx",
-      "args": ["-y", "expo-mcp", "apps/mobile", "--exclude-tools=list_devices"]
+      "args": ["-y", "github:DaveDev42/expo-mcp", "apps/mobile", "--exclude-tools=list_devices"]
     }
   }
 }
@@ -145,9 +141,9 @@ Or expose only specific tools with `--tools`:
 ```json
 {
   "mcpServers": {
-    "expo-mcp": {
+    "expo": {
       "command": "npx",
-      "args": ["-y", "expo-mcp", "--tools=start_session,stop_session,take_screenshot"]
+      "args": ["-y", "github:DaveDev42/expo-mcp", "--tools=start_session,stop_session,take_screenshot"]
     }
   }
 }
@@ -332,7 +328,7 @@ For features requiring Expo authentication, disable offline mode and provide `EX
 ```json
 {
   "mcpServers": {
-    "expo-mcp": {
+    "expo": {
       "env": {
         "EXPO_TOKEN": "your-token-here"
       }
