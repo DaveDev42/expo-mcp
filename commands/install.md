@@ -13,7 +13,7 @@ By the time the user runs this command, they have already installed the plugin v
 - Plugin root: `${CLAUDE_PLUGIN_ROOT}`
 - User flags: `$ARGUMENTS` (may contain `--scaffold-maestro`, `--skip-doctor`, or neither)
 
-This command runs three bundled shell scripts from `${CLAUDE_PLUGIN_ROOT}/scripts/`. Claude Code will prompt the user to approve each one the first time it runs — that is expected. Approving them grants no broader Bash access; only these specific scripts are allowed per prompt.
+This command runs three bundled Node scripts from `${CLAUDE_PLUGIN_ROOT}/scripts/`. Claude Code will prompt the user to approve each one the first time it runs — that is expected. Approving them grants no broader Bash access; only these specific scripts are allowed per prompt.
 
 ## Steps
 
@@ -24,7 +24,7 @@ Do these in order. Report progress with one short line per step.
 Unless `$ARGUMENTS` contains `--skip-doctor`, run:
 
 ```
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/doctor.sh
+node ${CLAUDE_PLUGIN_ROOT}/scripts/doctor.mjs
 ```
 
 Show the output verbatim. If the summary line starts with `[fail]`, **stop** — tell the user to fix the failures and re-run `/expo-mcp:install`. If it is `[warn]` or `[  ok]` (the two spaces are intentional column-alignment), continue.
@@ -34,7 +34,7 @@ Show the output verbatim. If the summary line starts with `[fail]`, **stop** —
 Run:
 
 ```
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/detect-app-dir.sh
+node ${CLAUDE_PLUGIN_ROOT}/scripts/detect-app-dir.mjs
 ```
 
 Interpret the output into a variable `DETECTED`:
@@ -73,11 +73,11 @@ Only if `$ARGUMENTS` contains `--scaffold-maestro` **and** `DETECTED` is not `NO
 
 - If `DETECTED` is `""` (project root), run:
   ```
-  bash ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold-maestro.sh
+  node ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold-maestro.mjs
   ```
 - Otherwise, pass `DETECTED` as a positional argument:
   ```
-  bash ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold-maestro.sh <DETECTED>
+  node ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold-maestro.mjs <DETECTED>
   ```
 
 If `DETECTED` is `NONE`, skip scaffolding — there is no app directory to scaffold into.

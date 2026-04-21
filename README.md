@@ -36,7 +36,7 @@ Three steps:
 - **Action required** — it tells you the exact value to paste into `/plugin` (select `expo-mcp`, edit `Expo App Directory`), then restart.
 - **Unverified** — no Expo project detected in this directory; restart is still fine but device tools will fail until the path points to one.
 
-The installer runs three bundled scripts (`doctor.sh`, `detect-app-dir.sh`, `scaffold-maestro.sh`) from the plugin directory. Claude Code will prompt you to approve each one the first time it runs — approve them to continue.
+The installer runs three bundled Node scripts (`doctor.mjs`, `detect-app-dir.mjs`, `scaffold-maestro.mjs`) from the plugin directory. Claude Code will prompt you to approve each one the first time it runs — approve them to continue.
 
 If you'd rather pre-approve the scripts (no prompts), add this to `.claude/settings.local.json` in your project — replacing `<PATH>` with the absolute path shown by Claude Code the first time each script runs:
 
@@ -44,9 +44,9 @@ If you'd rather pre-approve the scripts (no prompts), add this to `.claude/setti
 {
   "permissions": {
     "allow": [
-      "Bash(bash <PATH>/doctor.sh:*)",
-      "Bash(bash <PATH>/detect-app-dir.sh:*)",
-      "Bash(bash <PATH>/scaffold-maestro.sh:*)"
+      "Bash(node <PATH>/doctor.mjs:*)",
+      "Bash(node <PATH>/detect-app-dir.mjs:*)",
+      "Bash(node <PATH>/scaffold-maestro.mjs:*)"
     ]
   }
 }

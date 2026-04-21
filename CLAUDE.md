@@ -33,19 +33,23 @@ git config core.hooksPath .githooks
 Releases are cut from `main`. One-click release:
 
 ```bash
-scripts/release.sh 0.4.0          # actual release
-scripts/release.sh --dry-run 0.4.0  # print steps without mutating anything
+npm run release patch              # bump patch (e.g. 0.3.0 → 0.3.1)
+npm run release minor              # bump minor (e.g. 0.3.0 → 0.4.0)
+npm run release major              # bump major (e.g. 0.3.0 → 1.0.0)
+npm run release 0.4.0              # set exact version
+npm run release -- --dry-run 0.4.0 # print steps without mutating anything
 ```
 
-The script runs preflight checks (on `main`, clean tree, up-to-date with origin, tag doesn't exist, version is new), bumps the four version-bearing files via `scripts/sync-version.sh`, rebuilds `dist/`, typechecks, commits as `chore: release v<X.Y.Z>`, tags as `v<X.Y.Z>`, and pushes both `main` and the tag.
+The script (`scripts/release.mjs`) runs preflight checks (on `main`, clean tree, up-to-date with origin, tag doesn't exist, version is new), bumps the four version-bearing files (`package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, version literal in `src/index.ts`), rebuilds `dist/`, typechecks, self-verifies with `check:versions`, commits as `chore: release v<X.Y.Z>`, tags as `v<X.Y.Z>`, and pushes both `main` and the tag.
 
 Pushing the tag triggers `.github/workflows/release.yml`, which re-verifies the version/tag/dist consistency and creates a GitHub Release with auto-generated notes.
 
-Manual bump without releasing:
+Read-only version check:
 
 ```bash
-scripts/sync-version.sh 0.4.0     # edit the four files only
-scripts/sync-version.sh --check   # verify all four agree
+npm run check:versions             # verify all four files agree
 ```
 
-CI also runs `sync-version.sh --check` on every PR — a version mismatch across those files fails the build.
+CI also runs `npm run check:versions` on every PR — a version mismatch across those files fails the build.
+
+All project scripts (`scripts/*.mjs`) are Node ES modules; there are no bash scripts under `scripts/` (git hooks under `.githooks/` remain POSIX sh).

@@ -12,8 +12,8 @@ jobs:
         with:
           node-version: 18
       - run: npm ci
-      - name: Check version is in sync across files
-        run: bash scripts/sync-version.sh --check
+      - name: Check versions are in sync across all 4 files
+        run: npm run check:versions
       - run: npm run build
       - name: Check dist/ is up to date
         run: |
