@@ -1,12 +1,13 @@
 # Dependencies
 node_modules/
 
-# Build output (dist/ is committed for npx/pnpx compatibility)
+# Build output (dist/ is committed so `npx github:DaveDev42/expo-mcp` works)
 # dist/
 
 # Logs
 *.log
 npm-debug.log*
+pnpm-debug.log*
 
 # IDE
 .idea/

@@ -2,24 +2,37 @@ name: CI
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
 
 jobs:
-  check-dist:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: 18
-      - run: npm ci
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
       - name: Check versions are in sync across all 4 files
-        run: npm run check:versions
-      - run: npm run build
+        run: pnpm check:versions
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
       - name: Check dist/ is up to date
         run: |
           if [ -n "$(git diff --name-only dist/)" ]; then
-            echo "::error::dist/ is out of date. Run 'npm run build' and commit dist/."
+            echo "::error::dist/ is out of date. Run 'pnpm build' and commit dist/."
             git diff --stat dist/
             exit 1
           fi
-      - run: npm run typecheck

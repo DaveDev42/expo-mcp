@@ -1,7 +1,7 @@
 ---
 description: Verifies the expo-mcp plugin setup — runs prerequisite checks, confirms the configured Expo app directory is correct, optionally scaffolds maestro/, and tells the user whether they need to fix config or just restart.
 argument-hint: "[--scaffold-maestro] [--skip-doctor]"
-allowed-tools: Read(.claude/settings.json)
+allowed-tools: Read
 ---
 
 You are running the **expo-mcp installer**. Your job is to verify the setup in one pass and tell the user whether they can restart immediately or whether they need to adjust a single config value first.
@@ -46,17 +46,22 @@ Interpret the output into a variable `DETECTED`:
 
 ### 3. Read the currently configured app_dir
 
-Always run this step, regardless of step 2's outcome. Use `Read` on `.claude/settings.json`. Handle the outcome as follows:
+Plugin `userConfig` values live in **user-global** settings, not project-local settings. Check both files in this order (first match wins), using `Read`:
 
-- **Read returns "file not found" (or similar absence error)**: set `CONFIGURED=unset` and continue. Do not stop.
-- **File read succeeds**: parse it as JSON and look up the app_dir value, trying these locations in order:
-  1. `pluginConfigs["expo-mcp@expo-mcp"].options.app_dir` — primary, most common
-  2. Any key under `pluginConfigs` whose name starts with `expo-mcp@` — then read `.options.app_dir`
-  3. If neither exists, set `CONFIGURED=unset`
+1. `~/.claude/settings.json` (user-global — this is where `/plugin install` normally writes `userConfig`)
+2. `./.claude/settings.json` (project-local override, if any)
+
+For each file:
+
+- If `Read` returns a "file not found" error, skip that file and try the next one. Do not stop.
+- If `Read` succeeds, parse it as JSON and look up the app_dir value, trying these key paths in order:
+  1. `pluginConfigs["expo-mcp@expo-mcp"].options.app_dir` — primary. The key is `"<pluginName>@<marketplaceName>"`; for this plugin both are `expo-mcp`.
+  2. Any key under `pluginConfigs` whose name starts with `expo-mcp@` — read `.options.app_dir` from that entry. (Fallback in case a user installed from a non-standard marketplace.)
+- If neither file nor key exists, set `CONFIGURED=unset`.
 
 Treat an explicitly empty string (`""`) as a deliberate blank, **not** unset — it means "the Expo app is at the project root".
 
-Do **not** edit the file. Claude Code owns plugin config; we only read it.
+Do **not** edit either settings file. Claude Code owns plugin config; we only read it.
 
 ### 4. Compare and decide the verdict
 
@@ -176,6 +181,6 @@ If there were any doctor warnings, surface them above the block.
 ## Rules
 
 - Never invent tool output — always run the scripts and report what they printed.
-- Never edit `.mcp.json`, `.claude/settings.json`, or `plugin.json`. The plugin system owns those.
+- Never edit `~/.claude/settings.json`, `./.claude/settings.json`, `.mcp.json`, or `plugin.json`. The plugin system owns those.
 - Be terse. The user wants a verdict, not a walkthrough.
 - If something unexpected happens (malformed settings.json, ambiguous detection), stop and ask.

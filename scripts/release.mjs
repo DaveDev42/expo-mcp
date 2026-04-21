@@ -2,20 +2,20 @@
 // Cut a new release of expo-mcp.
 //
 // Usage:
-//   npm run release patch
-//   npm run release minor
-//   npm run release major
-//   npm run release 0.4.0
-//   npm run release -- --dry-run 0.4.0
+//   pnpm release patch
+//   pnpm release minor
+//   pnpm release major
+//   pnpm release 0.4.0
+//   pnpm release --dry-run 0.4.0
 //
 // Performs, in order:
 //   1. Preflight: on main, clean tree, up-to-date with origin/main, tag not
 //      taken (locally or remote), new version differs from current, semver OK.
 //   2. Bump version in all 4 files (package.json, plugin.json,
 //      marketplace.json, src/index.ts version literal).
-//   3. `npm run build` — regenerates dist/ so the pre-commit hook sees a clean
+//   3. `pnpm build` — regenerates dist/ so the pre-commit hook sees a clean
 //      rebuild and the CI dist-sync check passes.
-//   4. `npm run typecheck` — sanity.
+//   4. `pnpm typecheck` — sanity.
 //   5. `node scripts/check-versions.mjs` — self-check that the bump produced a
 //      consistent set of files. Defence in depth.
 //   6. `git commit -am "chore: release vX.Y.Z"`.
@@ -169,7 +169,7 @@ function main() {
   }
   const spec = args[0];
   if (!spec) {
-    console.error('usage: npm run release -- [--dry-run] <patch|minor|major|X.Y.Z>');
+    console.error('usage: pnpm release [--dry-run] <patch|minor|major|X.Y.Z>');
     process.exit(2);
   }
 
@@ -194,11 +194,11 @@ function main() {
   console.log('');
 
   console.log('== build ==');
-  run('npm run build');
+  run('pnpm build');
   console.log('');
 
   console.log('== typecheck ==');
-  run('npm run typecheck');
+  run('pnpm typecheck');
   console.log('');
 
   console.log('== self-check ==');
