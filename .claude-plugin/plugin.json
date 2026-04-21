@@ -1,8 +1,10 @@
 {
   "name": "expo-mcp",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Expo/React Native app automation — QA testing, UI automation, and Maestro integration. Run /expo-mcp:install afterward to verify setup.",
-  "author": { "name": "DaveDev42" },
+  "author": {
+    "name": "DaveDev42"
+  },
   "homepage": "https://github.com/DaveDev42/expo-mcp",
   "repository": "https://github.com/DaveDev42/expo-mcp.git",
   "license": "MIT",
