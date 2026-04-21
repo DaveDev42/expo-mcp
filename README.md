@@ -14,29 +14,32 @@ MCP server for Expo/React Native app automation with Maestro integration.
 
 ### As a Claude Code Plugin (Recommended)
 
-Three steps:
+Two commands, then restart:
 
 ```
-# 1. Install the plugin. Claude Code will prompt for "Expo App Directory" —
-#    leave it empty if your Expo app is at the project root, or enter the
-#    sub-path (e.g. apps/mobile) for monorepos. You can change it later.
+# 1. Install the plugin. Just dismiss the "Expo App Directory" prompt
+#    (or leave it empty) — the next step configures it for you.
 /plugin marketplace add DaveDev42/expo-mcp
 /plugin install expo-mcp --scope project
 
-# 2. Verify the setup. The installer runs environment checks, auto-detects
-#    the correct Expo app directory, and compares it to what you configured.
-#    The output tells you exactly what to do next.
-/expo-mcp:install
-
-# 3. Restart Claude Code so the MCP server picks up the config.
+# 2. One-shot installer. Runs environment checks, auto-detects the Expo
+#    app directory, and writes the userConfig directly into
+#    .claude/settings.json. No /plugin UI round-trip needed.
+/expo-mcp:install                     # auto-detect
+/expo-mcp:install apps/mobile         # monorepo: pass the path explicitly
 ```
 
-`/expo-mcp:install` reports the environment check and then one of:
-- **Configuration is correct** — just restart.
-- **Action required** — it tells you the exact value to paste into `/plugin` (select `expo-mcp`, edit `Expo App Directory`), then restart.
-- **Unverified** — no Expo project detected in this directory; restart is still fine but device tools will fail until the path points to one.
+Then **restart Claude Code** and all tools, agents, and skills are ready.
 
-The installer runs three bundled Node scripts (`doctor.mjs`, `detect-app-dir.mjs`, `scaffold-maestro.mjs`) from the plugin directory. Claude Code will prompt you to approve each one the first time it runs — approve them to continue.
+Installer flags:
+
+```
+/expo-mcp:install apps/mobile --global        # write to ~/.claude/settings.json
+/expo-mcp:install --scaffold-maestro          # also create a starter maestro/
+/expo-mcp:install --skip-doctor               # skip prerequisite checks
+```
+
+The installer runs bundled Node scripts (`doctor.mjs`, `detect-app-dir.mjs`, `scaffold-maestro.mjs`) from the plugin directory. Claude Code will prompt you to approve each one the first time it runs — approve them to continue.
 
 If you'd rather pre-approve the scripts (no prompts), add this to `.claude/settings.local.json` in your project — replacing `<PATH>` with the absolute path shown by Claude Code the first time each script runs:
 
@@ -50,13 +53,6 @@ If you'd rather pre-approve the scripts (no prompts), add this to `.claude/setti
     ]
   }
 }
-```
-
-Optional flags for the installer:
-
-```
-/expo-mcp:install --scaffold-maestro   # also create a starter maestro/ directory
-/expo-mcp:install --skip-doctor        # skip prerequisite checks
 ```
 
 Installing the plugin automatically wires up:

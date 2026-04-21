@@ -1,23 +1,32 @@
 ---
-description: Verifies the expo-mcp plugin setup — runs prerequisite checks, confirms the configured Expo app directory is correct, optionally scaffolds maestro/, and tells the user whether they need to fix config or just restart.
-argument-hint: "[--scaffold-maestro] [--skip-doctor]"
-allowed-tools: Read
+description: One-shot installer for expo-mcp — runs prereq checks, detects the Expo app directory, writes userConfig directly into .claude/settings.json, and tells the user to restart. No /plugin UI round-trip required.
+argument-hint: "[app-dir] [--global] [--scaffold-maestro] [--skip-doctor]"
+allowed-tools: Read Edit Write Bash Glob
+disable-model-invocation: true
 ---
 
-You are running the **expo-mcp installer**. Your job is to verify the setup in one pass and tell the user whether they can restart immediately or whether they need to adjust a single config value first.
+You are running the **expo-mcp installer**. One-shot: after this command finishes and the user restarts Claude Code, every tool, agent, and skill is ready to use. Do **not** send the user to the `/plugin` UI.
 
-## Assumptions
+## Arguments
 
-By the time the user runs this command, they have already installed the plugin via `/plugin install expo-mcp`. During that install Claude Code prompted them for the `Expo App Directory` (`userConfig.app_dir`) — it may be correct, wrong, or left blank.
+Parse `$ARGUMENTS` as a whitespace-separated list:
+- **First positional** — Expo app directory relative to the current working directory. If absent, auto-detect (step 2).
+- **`--global`** — write plugin userConfig to `~/.claude/settings.json` instead of the project-local `.claude/settings.json`. Default: project-local.
+- **`--scaffold-maestro`** — also scaffold a starter `maestro/` directory. Default: skip.
+- **`--skip-doctor`** — skip environment prereq checks. Default: run them.
+
+Do not ask the user to pick these — if they didn't pass them, use the defaults. The goal is one-shot install: user runs the command once, restarts Claude Code, done.
+
+## Context
 
 - Plugin root: `${CLAUDE_PLUGIN_ROOT}`
-- User flags: `$ARGUMENTS` (may contain `--scaffold-maestro`, `--skip-doctor`, or neither)
+- All installer scripts default to the current working directory when run without arguments.
 
-This command runs three bundled Node scripts from `${CLAUDE_PLUGIN_ROOT}/scripts/`. Claude Code will prompt the user to approve each one the first time it runs — that is expected. Approving them grants no broader Bash access; only these specific scripts are allowed per prompt.
+This command runs bundled Node scripts from `${CLAUDE_PLUGIN_ROOT}/scripts/`. Claude Code will prompt for approval the first time each script runs — that is expected.
 
 ## Steps
 
-Do these in order. Report progress with one short line per step.
+Proceed without asking for confirmation. Print what you're doing as you go (one short line per step), but do not block on user approval. The only exception: if detection is ambiguous (multiple candidate Expo app dirs), ask once to disambiguate, then continue through to the end.
 
 ### 1. Environment doctor
 
@@ -27,88 +36,86 @@ Unless `$ARGUMENTS` contains `--skip-doctor`, run:
 node ${CLAUDE_PLUGIN_ROOT}/scripts/doctor.mjs
 ```
 
-Show the output verbatim. If the summary line starts with `[fail]`, **stop** — tell the user to fix the failures and re-run `/expo-mcp:install`. If it is `[warn]` or `[  ok]` (the two spaces are intentional column-alignment), continue.
+Show the output verbatim. If the summary line starts with `[fail]`, **stop** — tell the user to fix the failures and re-run `/expo-mcp:install`. Warnings are fine; continue.
 
-### 2. Detect the recommended app directory
+### 2. Resolve the Expo app directory
 
-Run:
+Set `APP_DIR` as follows:
 
+- **If a first positional argument was provided**, use it as `APP_DIR` verbatim. Use `.` to mean "project root"; store it as `""` internally for the userConfig value.
+- **Otherwise**, run auto-detection:
+  ```
+  node ${CLAUDE_PLUGIN_ROOT}/scripts/detect-app-dir.mjs
+  ```
+  Interpret the output:
+  - **Empty**: no Expo app found. Tell the user this directory does not look like an Expo project and ask whether to continue anyway. If they decline, stop. If they confirm, set `APP_DIR=""` (project root as fallback) and continue.
+  - **One line, value `.`**: `APP_DIR=""` (Expo app is at the project root).
+  - **One line, non-`.` value**: `APP_DIR=<that value>`.
+  - **Multiple lines**: list the candidates numbered and ask the user to pick one; set `APP_DIR` accordingly. This is the only time you ask.
+
+### 3. Write the userConfig
+
+Decide the target file based on the `--global` flag:
+
+- `--global` present → `~/.claude/settings.json`
+- otherwise → `<cwd>/.claude/settings.json` (project-local)
+
+Merge the following under the chosen file, **preserving every other key**:
+
+```json
+{
+  "pluginConfigs": {
+    "expo-mcp@expo-mcp": {
+      "options": {
+        "app_dir": "<APP_DIR>"
+      }
+    }
+  }
+}
 ```
-node ${CLAUDE_PLUGIN_ROOT}/scripts/detect-app-dir.mjs
-```
 
-Interpret the output into a variable `DETECTED`:
+- `<APP_DIR>` is the resolved value from step 2 (possibly `""` for project root).
+- The plugin identifier is `expo-mcp@expo-mcp` (plugin name `@` marketplace name; both are `expo-mcp` per this repo's `.claude-plugin/marketplace.json`).
+- **Read the file first, merge, write back.** Never clobber existing keys. Use `Read` → parse JSON → merge → `Write` with the serialized result.
+- If the file doesn't exist, create it with just the `pluginConfigs` key (still preserve any unknown top-level keys that might already be there — but there won't be any if the file is new).
+- If `pluginConfigs["expo-mcp@expo-mcp"].options.app_dir` is already set to the same value, skip the write and log "config already correct".
+- If it's set to a **different** value, overwrite (the user just re-ran install with a new value — honor it) and log that you did.
+- For the project-local path, ensure `.claude/` exists first (create the directory with a single `Bash(mkdir -p .claude)` if needed).
 
-- **Empty**: no Expo app found. Tell the user this directory does not look like an Expo project; ask whether to continue anyway. Do not proceed until they reply. If they confirm, set `DETECTED=NONE` (a sentinel — not the same as `""`) and continue.
-- **One line, value `.`**: `DETECTED=""` (app_dir should be empty because the Expo app is at the project root).
-- **One line, non-`.`**: `DETECTED=<that value>`.
-- **Multiple lines**: list them numbered and ask the user to choose one; set `DETECTED` accordingly.
+After writing, print the target file path and the value you stored so the user can audit.
 
-### 3. Read the currently configured app_dir
+### 4. Optional: scaffold maestro/
 
-Plugin `userConfig` values live in **user-global** settings, not project-local settings. Check both files in this order (first match wins), using `Read`:
+Only if `$ARGUMENTS` contains `--scaffold-maestro`:
 
-1. `~/.claude/settings.json` (user-global — this is where `/plugin install` normally writes `userConfig`)
-2. `./.claude/settings.json` (project-local override, if any)
-
-For each file:
-
-- If `Read` returns a "file not found" error, skip that file and try the next one. Do not stop.
-- If `Read` succeeds, parse it as JSON and look up the app_dir value, trying these key paths in order:
-  1. `pluginConfigs["expo-mcp@expo-mcp"].options.app_dir` — primary. The key is `"<pluginName>@<marketplaceName>"`; for this plugin both are `expo-mcp`.
-  2. Any key under `pluginConfigs` whose name starts with `expo-mcp@` — read `.options.app_dir` from that entry. (Fallback in case a user installed from a non-standard marketplace.)
-- If neither file nor key exists, set `CONFIGURED=unset`.
-
-Treat an explicitly empty string (`""`) as a deliberate blank, **not** unset — it means "the Expo app is at the project root".
-
-Do **not** edit either settings file. Claude Code owns plugin config; we only read it.
-
-### 4. Compare and decide the verdict
-
-Branching order matters — check in this exact sequence:
-
-- **`DETECTED` == `NONE`** (no Expo app found, user chose to continue) → verdict = `NO_PROJECT_RESTART`. Include `CONFIGURED` in the output so the user sees what is currently stored.
-- **`CONFIGURED` is unset** → verdict = `SET_AND_RESTART` (the user dismissed the userConfig prompt during `/plugin install`).
-- **`DETECTED` == `CONFIGURED`** (both equal, including both being `""`) → verdict = `OK_RESTART`.
-- **Otherwise** (both defined, not equal) → verdict = `FIX_AND_RESTART`.
-
-### 5. Optional: scaffold maestro/
-
-Only if `$ARGUMENTS` contains `--scaffold-maestro` **and** `DETECTED` is not `NONE`:
-
-- If `DETECTED` is `""` (project root), run:
+- If `APP_DIR` is `""` (project root), run:
   ```
   node ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold-maestro.mjs
   ```
-- Otherwise, pass `DETECTED` as a positional argument:
+- Otherwise, pass `APP_DIR` as a positional argument:
   ```
-  node ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold-maestro.mjs <DETECTED>
+  node ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold-maestro.mjs <APP_DIR>
   ```
 
-If `DETECTED` is `NONE`, skip scaffolding — there is no app directory to scaffold into.
+The script is idempotent — it never overwrites existing `maestro/` files.
 
-### 6. Print the final block
+### 5. Final summary
 
-Produce ONE output block. Substitute `(project root)` when a path is empty.
-
-Show the doctor summary line, the detected vs configured values, and a verdict-specific next-step.
-
-**Template for `OK_RESTART`:**
+Print one concise block:
 
 ```
-expo-mcp installation verified
+expo-mcp installation complete
 ──────────────────────────────
-Environment:        <summary from doctor>
-Detected app_dir:   <DETECTED or "(project root)">
-Configured app_dir: <CONFIGURED or "(project root)">
-Maestro folder:     <scaffolded / skipped>
-
-Configuration is correct — nothing to fix.
+Environment:     <summary from doctor, or "skipped">
+app_dir:         <APP_DIR or "(project root)">
+Config written:  <absolute path to the settings file>
+Maestro folder:  <scaffolded / existing / skipped>
 
 Next step:
   Restart Claude Code so the MCP server picks up the config.
 
-Verify after restart:
+After restart, verify with:
+  /mcp                                   ← should show expo as connected
   get_session_status()
   start_session({ target: "ios-simulator" })
 
@@ -116,71 +123,14 @@ Reference:  /expo-guide
 Agents:     qa, flow-writer
 ```
 
-**Template for `FIX_AND_RESTART`:**
+Surface any doctor warnings above the block so the user sees them first.
 
-```
-expo-mcp installation — action required
-───────────────────────────────────────
-Environment:        <summary from doctor>
-Detected app_dir:   <DETECTED or "(project root)">
-Configured app_dir: <CONFIGURED or "(project root)">
-Status:             configured value does not match detected project
-Maestro folder:     <scaffolded / skipped>
+## Safety rules
 
-Fix this before restarting:
-
-  1. Run /plugin and select expo-mcp
-  2. Change "Expo App Directory" to: <DETECTED or "(leave empty)">
-  3. Restart Claude Code
-
-After restart, verify with:
-  start_session({ target: "ios-simulator" })
-```
-
-**Template for `SET_AND_RESTART`:**
-
-```
-expo-mcp installation — action required
-───────────────────────────────────────
-Environment:        <summary from doctor>
-Detected app_dir:   <DETECTED or "(project root)">
-Configured app_dir: (not set)
-Maestro folder:     <scaffolded / skipped>
-
-The plugin is installed but "Expo App Directory" was not configured.
-
-  1. Run /plugin and select expo-mcp
-  2. Set "Expo App Directory" to: <DETECTED or "(leave empty)">
-  3. Restart Claude Code
-
-After restart, verify with:
-  start_session({ target: "ios-simulator" })
-```
-
-**Template for `NO_PROJECT_RESTART`:**
-
-```
-expo-mcp installation — unverified
-──────────────────────────────────
-Environment:        <summary from doctor>
-Detected app_dir:   (no Expo app detected)
-Configured app_dir: <CONFIGURED or "(not set)">
-Maestro folder:     <scaffolded / skipped>
-
-Auto-detection did not find an Expo app in this directory, so the app_dir
-value could not be verified. The plugin will still load after restart, but
-device tools will fail until this directory contains an Expo project (or
-until you point the plugin at one via /plugin).
-
-Next step:
-  Restart Claude Code (or open an Expo project first and re-run /expo-mcp:install).
-```
-
-If there were any doctor warnings, surface them above the block.
-
-## Rules
-
-- Never invent tool output — always run the scripts and report what they printed.
-- Never edit `~/.claude/settings.json`, `./.claude/settings.json`, `.mcp.json`, or `plugin.json`. The plugin system owns those.
-- Be terse. The user wants a verdict, not a walkthrough.
-- If something unexpected happens (malformed settings.json, ambiguous detection), stop and ask.
+- Read each settings file before editing. Never assume contents.
+- Merge — never clobber keys the installer doesn't own.
+- Make idempotent edits: if the target already matches, skip without error.
+- Print what you're editing as you go — short one-liners. The user should see a trail, just without approval prompts.
+- If detection is ambiguous (multiple Expo app candidates), ask **once** to disambiguate, then continue through to the end.
+- Don't touch `node_modules`, `dist/`, or build output.
+- Don't modify `.mcp.json`, `plugin.json`, or anything outside the resolved app_dir / the chosen settings file.
