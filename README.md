@@ -14,29 +14,57 @@ MCP server for Expo/React Native app automation with Maestro integration.
 
 ### As a Claude Code Plugin (Recommended)
 
-Install as a plugin to get the MCP server, QA agent, flow writer, and usage guide in one step:
+Three steps:
 
 ```
-# 1. Add the marketplace source
+# 1. Install the plugin. Claude Code will prompt for "Expo App Directory" —
+#    leave it empty if your Expo app is at the project root, or enter the
+#    sub-path (e.g. apps/mobile) for monorepos. You can change it later.
 /plugin marketplace add DaveDev42/expo-mcp
-
-# 2. Install the plugin
 /plugin install expo-mcp --scope project
+
+# 2. Verify the setup. The installer runs environment checks, auto-detects
+#    the correct Expo app directory, and compares it to what you configured.
+#    The output tells you exactly what to do next.
+/expo-mcp:install
+
+# 3. Restart Claude Code so the MCP server picks up the config.
 ```
 
-Or from the terminal:
+`/expo-mcp:install` reports the environment check and then one of:
+- **Configuration is correct** — just restart.
+- **Action required** — it tells you the exact value to paste into `/plugin` (select `expo-mcp`, edit `Expo App Directory`), then restart.
+- **Unverified** — no Expo project detected in this directory; restart is still fine but device tools will fail until the path points to one.
 
-```bash
-claude plugin marketplace add DaveDev42/expo-mcp
-claude plugin install expo-mcp --scope project
+The installer runs three bundled scripts (`doctor.sh`, `detect-app-dir.sh`, `scaffold-maestro.sh`) from the plugin directory. Claude Code will prompt you to approve each one the first time it runs — approve them to continue.
+
+If you'd rather pre-approve the scripts (no prompts), add this to `.claude/settings.local.json` in your project — replacing `<PATH>` with the absolute path shown by Claude Code the first time each script runs:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash <PATH>/doctor.sh:*)",
+      "Bash(bash <PATH>/detect-app-dir.sh:*)",
+      "Bash(bash <PATH>/scaffold-maestro.sh:*)"
+    ]
+  }
+}
 ```
 
-This automatically:
-- Configures the `expo` MCP server (no manual `.mcp.json` needed)
-- Adds a **QA agent** (`qa`) for automated mobile app testing
-- Adds a **flow writer agent** (`flow-writer`) for creating Maestro YAML test flows
-- Adds a **usage guide** skill (`/expo-guide`) with tool reference and best practices
-- Adds a **validation hook** that warns on QA PASS verdicts without execution evidence
+Optional flags for the installer:
+
+```
+/expo-mcp:install --scaffold-maestro   # also create a starter maestro/ directory
+/expo-mcp:install --skip-doctor        # skip prerequisite checks
+```
+
+Installing the plugin automatically wires up:
+- The `expo` MCP server (no manual `.mcp.json` needed)
+- A **QA agent** (`qa`) for automated mobile app testing
+- A **flow writer agent** (`flow-writer`) for creating Maestro YAML test flows
+- A **usage guide** skill (`/expo-guide`) with tool reference and best practices
+- A **validation hook** that warns on QA PASS verdicts without execution evidence
 
 ### As an MCP Server Only
 

@@ -1,7 +1,7 @@
 {
   "name": "expo-mcp",
-  "version": "0.2.1",
-  "description": "Expo/React Native app automation — QA testing, UI automation, and Maestro integration",
+  "version": "0.3.0",
+  "description": "Expo/React Native app automation — QA testing, UI automation, and Maestro integration. Run /expo-mcp:install afterward to verify setup.",
   "author": { "name": "DaveDev42" },
   "homepage": "https://github.com/DaveDev42/expo-mcp",
   "repository": "https://github.com/DaveDev42/expo-mcp.git",
@@ -18,7 +18,7 @@
   "userConfig": {
     "app_dir": {
       "title": "Expo App Directory",
-      "description": "Path to Expo app directory relative to project root (e.g., apps/app). Leave empty if Expo app is at the project root.",
+      "description": "Path to the Expo app directory, relative to the project root (e.g., apps/mobile). Leave empty if the Expo app lives at the project root.",
       "type": "string",
       "sensitive": false
     }

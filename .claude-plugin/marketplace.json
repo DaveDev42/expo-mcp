@@ -7,8 +7,8 @@
     {
       "name": "expo-mcp",
       "source": "./",
-      "description": "Expo/React Native app automation — QA testing, UI automation, and Maestro integration",
-      "version": "0.2.0"
+      "description": "Expo/React Native app automation — QA testing, UI automation, and Maestro integration. Run /expo-mcp:install afterward to verify setup.",
+      "version": "0.3.0"
     }
   ]
 }
