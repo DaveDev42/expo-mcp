@@ -1,6 +1,6 @@
 {
   "name": "expo-mcp",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "description": "MCP server for Expo app automation with Maestro integration",
   "packageManager": "pnpm@10.33.0",

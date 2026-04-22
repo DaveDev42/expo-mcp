@@ -42,7 +42,7 @@ for (const arg of args) {
     printUsage();
     process.exit(0);
   } else if (arg === '--version' || arg === '-v') {
-    console.log('expo-mcp 0.3.1');
+    console.log('expo-mcp 0.3.2');
     process.exit(0);
   } else if (arg.startsWith('--exclude-tools=')) {
     excludeTools = arg.slice('--exclude-tools='.length);
