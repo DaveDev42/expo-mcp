@@ -1,15 +1,35 @@
-import sharp from 'sharp';
-
 // Claude Code limits
 const MAX_WIDTH = 1200;
 const MAX_HEIGHT = 2000;
 const MAX_FILE_SIZE_BYTES = 200 * 1024; // 200KB target (under 256KB limit)
+
+type SharpModule = typeof import('sharp');
+
+let sharpPromise: Promise<SharpModule | null> | null = null;
+
+function loadSharp(): Promise<SharpModule | null> {
+  if (!sharpPromise) {
+    sharpPromise = import('sharp')
+      .then((m) => m.default ?? (m as unknown as SharpModule))
+      .catch((err) => {
+        console.error(
+          '[Image] sharp is unavailable — screenshots will be returned at original size.',
+          err instanceof Error ? err.message : err,
+        );
+        return null;
+      });
+  }
+  return sharpPromise;
+}
 
 /**
  * Resize base64 image to fit within max dimensions AND file size
  * Maintains aspect ratio and returns resized base64 string
  */
 export async function resizeImageIfNeeded(base64Data: string, mimeType: string = 'image/png'): Promise<string> {
+  const sharp = await loadSharp();
+  if (!sharp) return base64Data;
+
   try {
     // Decode base64 to buffer
     let buffer = Buffer.from(base64Data, 'base64');
@@ -101,6 +121,8 @@ export async function processScreenshotResponse(response: any): Promise<any> {
     return response;
   }
 
+  const sharpAvailable = (await loadSharp()) !== null;
+
   const processedContent = await Promise.all(
     response.content.map(async (item: any) => {
       // MCP standard format: { type: 'image', source: { type: 'base64', media_type: '...', data: '...' } }
@@ -111,7 +133,8 @@ export async function processScreenshotResponse(response: any): Promise<any> {
           source: {
             ...item.source,
             data: resizedData,
-            media_type: 'image/jpeg', // Updated since we convert to JPEG
+            // Only flip media_type to JPEG when sharp actually re-encoded the image.
+            media_type: sharpAvailable ? 'image/jpeg' : item.source.media_type,
           },
         };
       }
@@ -121,7 +144,7 @@ export async function processScreenshotResponse(response: any): Promise<any> {
         return {
           ...item,
           data: resizedData,
-          mimeType: 'image/jpeg',
+          mimeType: sharpAvailable ? 'image/jpeg' : item.mimeType,
         };
       }
       return item;

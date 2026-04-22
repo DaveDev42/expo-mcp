@@ -1645,11 +1645,25 @@ ${commands}`;
 }
 
 // src/utils/image.ts
-import sharp from "sharp";
 var MAX_WIDTH = 1200;
 var MAX_HEIGHT = 2e3;
 var MAX_FILE_SIZE_BYTES = 200 * 1024;
+var sharpPromise = null;
+function loadSharp() {
+  if (!sharpPromise) {
+    sharpPromise = import("sharp").then((m) => m.default ?? m).catch((err) => {
+      console.error(
+        "[Image] sharp is unavailable \u2014 screenshots will be returned at original size.",
+        err instanceof Error ? err.message : err
+      );
+      return null;
+    });
+  }
+  return sharpPromise;
+}
 async function resizeImageIfNeeded(base64Data, mimeType = "image/png") {
+  const sharp = await loadSharp();
+  if (!sharp) return base64Data;
   try {
     let buffer = Buffer.from(base64Data, "base64");
     const originalSize = buffer.length;
@@ -1714,6 +1728,7 @@ async function processScreenshotResponse(response) {
   if (!response?.content) {
     return response;
   }
+  const sharpAvailable = await loadSharp() !== null;
   const processedContent = await Promise.all(
     response.content.map(async (item) => {
       if (item.type === "image" && item.source?.data) {
@@ -1723,8 +1738,8 @@ async function processScreenshotResponse(response) {
           source: {
             ...item.source,
             data: resizedData,
-            media_type: "image/jpeg"
-            // Updated since we convert to JPEG
+            // Only flip media_type to JPEG when sharp actually re-encoded the image.
+            media_type: sharpAvailable ? "image/jpeg" : item.source.media_type
           }
         };
       }
@@ -1733,7 +1748,7 @@ async function processScreenshotResponse(response) {
         return {
           ...item,
           data: resizedData,
-          mimeType: "image/jpeg"
+          mimeType: sharpAvailable ? "image/jpeg" : item.mimeType
         };
       }
       return item;
