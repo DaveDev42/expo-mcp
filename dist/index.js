@@ -1979,7 +1979,7 @@ function createLifecycleHandlers(managers) {
       if (!target) {
         return fail("device_not_on_dev_bundle", { dev_bundle_attached: devBundleAttached });
       }
-      const origin = `http://localhost:${port}`;
+      const origin = `http://127.0.0.1:${port}`;
       let capture;
       try {
         capture = await captureDeviceConsole({

@@ -706,7 +706,16 @@ export function createLifecycleHandlers(managers: LifecycleTools) {
         return fail('device_not_on_dev_bundle', { dev_bundle_attached: devBundleAttached });
       }
 
-      const origin = `http://localhost:${port}`;
+      // Origin MUST be 127.0.0.1, not localhost. Expo's createDebugMiddleware
+      // gates the debugger WS with isMatchingOrigin() against serverBaseUrl,
+      // and Expo normalizes the dev-server host 'localhost' -> '127.0.0.1'
+      // (UrlCreator.getDefaultHostname). A 'localhost' Origin fails the strict
+      // host compare ('localhost:PORT' !== '127.0.0.1:PORT') and the middleware
+      // calls socket.terminate() right after the InspectorProxy accepts the
+      // connection — the debugger socket dies with code 1006 before any CDP
+      // traffic (observed on a physical iOS Bridgeless dev-client). Using the
+      // loopback literal makes the origins match and the session survives.
+      const origin = `http://127.0.0.1:${port}`;
 
       // PRECOND 2 — capture window with a reload-then-settle, proving fresh execution.
       let capture;
