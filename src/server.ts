@@ -91,35 +91,11 @@ export class McpServer {
     // List tools handler
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
       const allLifecycleTools: Tool[] = Object.values(lifecycleToolSchemas).map((schema) => {
-        const properties: Record<string, any> = {};
-        const required: string[] = [];
-
-        if (schema.inputSchema.shape) {
-          for (const [key, value] of Object.entries(schema.inputSchema.shape)) {
-            const zodValue = value as any;
-            properties[key] = {
-              type: this.getZodType(zodValue),
-              description: zodValue.description || '',
-            };
-            // Add enum values if it's an enum type
-            if (zodValue._def?.typeName === 'ZodEnum') {
-              properties[key].enum = zodValue._def.values;
-            }
-            // Check if field is required (not optional)
-            if (!zodValue.isOptional()) {
-              required.push(key);
-            }
-          }
-        }
-
+        const jsonSchema = this.zodToJsonSchema(schema.inputSchema);
         return {
           name: schema.name,
           description: schema.description,
-          inputSchema: {
-            type: 'object',
-            properties,
-            ...(required.length > 0 && { required }),
-          },
+          inputSchema: jsonSchema as Tool['inputSchema'],
         };
       });
 
@@ -190,14 +166,90 @@ export class McpServer {
     });
   }
 
-  private getZodType(zodSchema: any): string {
-    if (zodSchema._def?.typeName === 'ZodString') return 'string';
-    if (zodSchema._def?.typeName === 'ZodNumber') return 'number';
-    if (zodSchema._def?.typeName === 'ZodBoolean') return 'boolean';
-    if (zodSchema._def?.typeName === 'ZodEnum') return 'string';
-    if (zodSchema._def?.typeName === 'ZodObject') return 'object';
-    if (zodSchema._def?.typeName === 'ZodArray') return 'array';
-    return 'string';
+  /**
+   * Convert a Zod schema to a JSON Schema fragment for the MCP tool list.
+   *
+   * Unwraps Optional/Default/Effects/Nullable modifiers (so `.coerce.boolean()
+   * .optional().default(true)` reflects as `boolean`, not the wrapper) and
+   * recurses into ZodObject.shape and ZodArray.element — without this, a nested
+   * `signatures[]` schema advertises a bare `{type:'array'}` with no items and an
+   * LLM cannot call the tool correctly.
+   */
+  private zodToJsonSchema(zodSchema: any): Record<string, any> {
+    // Unwrap modifier wrappers, preserving the innermost description.
+    let node = zodSchema;
+    let description: string | undefined = node?._def?.description;
+    let defaultValue: unknown;
+    let hasDefault = false;
+    const wrappers = new Set([
+      'ZodOptional',
+      'ZodNullable',
+      'ZodDefault',
+      'ZodEffects',
+      'ZodCatch',
+      'ZodBranded',
+    ]);
+    while (node?._def?.typeName && wrappers.has(node._def.typeName)) {
+      const def = node._def;
+      if (def.typeName === 'ZodDefault') {
+        hasDefault = true;
+        try {
+          defaultValue = typeof def.defaultValue === 'function' ? def.defaultValue() : def.defaultValue;
+        } catch {
+          /* ignore non-evaluable default */
+        }
+        node = def.innerType;
+      } else if (def.typeName === 'ZodEffects') {
+        node = def.schema;
+      } else {
+        node = def.innerType ?? def.type ?? node;
+      }
+      description = node?._def?.description ?? description;
+    }
+
+    const typeName: string | undefined = node?._def?.typeName;
+    const out: Record<string, any> = {};
+    if (description) out.description = description;
+    if (hasDefault && defaultValue !== undefined) out.default = defaultValue;
+
+    switch (typeName) {
+      case 'ZodString':
+        out.type = 'string';
+        break;
+      case 'ZodNumber':
+        out.type = 'number';
+        break;
+      case 'ZodBoolean':
+        out.type = 'boolean';
+        break;
+      case 'ZodEnum':
+        out.type = 'string';
+        out.enum = node._def.values;
+        break;
+      case 'ZodArray':
+        out.type = 'array';
+        out.items = this.zodToJsonSchema(node._def.type);
+        break;
+      case 'ZodObject': {
+        out.type = 'object';
+        const properties: Record<string, any> = {};
+        const required: string[] = [];
+        const shape = typeof node._def.shape === 'function' ? node._def.shape() : node._def.shape;
+        for (const [key, value] of Object.entries(shape ?? {})) {
+          properties[key] = this.zodToJsonSchema(value);
+          if (!(value as any).isOptional?.()) {
+            required.push(key);
+          }
+        }
+        out.properties = properties;
+        if (required.length > 0) out.required = required;
+        break;
+      }
+      default:
+        out.type = 'string';
+        break;
+    }
+    return out;
   }
 
   async start() {
