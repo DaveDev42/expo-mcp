@@ -26,6 +26,9 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Test (verify-self-check)
+        run: pnpm test
+
       - name: Build
         run: pnpm build
 
